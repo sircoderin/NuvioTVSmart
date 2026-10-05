@@ -15,7 +15,9 @@ export function createHomeCatalogSettingsSyncServiceMethods01() {
     clearPendingPush,
     pendingPushVersion,
     buildLocalPayload,
+    buildLocalPayloadState,
     payloadSignature,
+    remotePayloadChangesHome,
     fetchBestRemotePayload,
     applyPayload,
     mergedSharedPayload
@@ -44,7 +46,8 @@ export function createHomeCatalogSettingsSyncServiceMethods01() {
           await this.push(resolvedProfileId);
           return false;
         }
-        const localPayload = await buildLocalPayload(resolvedProfileId);
+        const localState = await buildLocalPayloadState(resolvedProfileId);
+        const localPayload = localState.payload;
         const remote = await fetchBestRemotePayload(resolvedProfileId, localPayload);
         if (!remote || !(remote.payload.items || []).length) {
           if (pullToken) {
@@ -65,11 +68,19 @@ export function createHomeCatalogSettingsSyncServiceMethods01() {
           }
           return false;
         }
-        applyPayload(resolvedProfileId, remote.payload);
+        const changesHome = remotePayloadChangesHome({
+          remotePayload: remote.payload,
+          localPayload,
+          catalogEntries: localState.catalogEntries,
+          collectionEntries: localState.collectionEntries
+        });
+        // Store the remote list even when Home is unchanged: it keeps positions
+        // for catalogs that are not installed on this device.
+        applyPayload(resolvedProfileId, remote.payload, localPayload);
         if (pullToken) {
           this.completedInitialPullTokens.add(pullToken);
         }
-        return true;
+        return changesHome;
       } catch (error) {
         this.lastPullFailed = true;
         console.warn("Home catalog settings sync pull failed", error);

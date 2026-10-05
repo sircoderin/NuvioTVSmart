@@ -10,6 +10,18 @@ import { ProfileManager } from "./profileManager.js";
 import { buildCatalogDisableKey, buildCatalogOrderKey, catalogShouldShowOnHome } from "../addons/homeCatalogs.js";
 import { getSyncBackoffRemainingMs, isSyncBackoffActive } from "../sync/syncBackoffPolicy.js";
 import { registerSessionTeardownHandler } from "../auth/sessionLifecycle.js";
+import {
+  HIDE_UNRELEASED_CONTENT_KEY,
+  composeLocalPayload,
+  homeCatalogPrefsFromPayload,
+  itemHasIdentity,
+  normalizeString,
+  normalizeSyncItem,
+  payloadSignature,
+  remotePayloadChangesHome,
+  stableStringify,
+  syncItemKey
+} from "./homeCatalogSettingsPayload.js";
 
 import { createHomeCatalogSettingsSyncServiceMethods01 } from "./homeCatalogSettingsSyncServiceMethods-01-is-syncing-from-remote.js";
 
@@ -58,8 +70,10 @@ export {
   extractUpdatedAt,
   buildCatalogEntries,
   buildCollectionEntries,
+  buildLocalPayloadState,
   buildLocalPayload,
   decodePayload,
+  remotePayloadChangesHome,
   payloadSignature,
   fetchRemoteBlob,
   fetchBestRemotePayload,
@@ -70,7 +84,6 @@ const PULL_RPC = "sync_pull_home_catalog_settings";
 const PUSH_RPC = "sync_push_home_catalog_settings";
 const HOME_CATALOG_SHARED_SYNC_PLATFORM = "home_catalog_shared";
 const PUSH_DEBOUNCE_MS = 500;
-const HIDE_UNRELEASED_CONTENT_KEY = "hide_unreleased_content";
 const HIDE_CATALOG_UNDERLINE_KEY = "hide_catalog_underline";
 const PENDING_PUSH_TOKENS_KEY = "homeCatalogSettingsPendingPushTokens";
 let cachedSharedSettings = null;
@@ -92,23 +105,6 @@ function cloneValue(value) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function stableStringify(value) {
-  if (Array.isArray(value)) {
-    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function normalizeString(value) {
-  return String(value ?? "").trim();
 }
 
 function decodeJwtPayload(token) {
@@ -197,37 +193,6 @@ function firstStringArrayFromRaw(raw = {}, keys = []) {
   return null;
 }
 
-function syncItemKey(item = {}) {
-  if (item.is_collection || item.isCollection) {
-    return buildCollectionHomeKey({
-      id: item.collection_id ?? item.collectionId
-    });
-  }
-  return buildCatalogOrderKey(item.addon_id ?? item.addonId, item.type, item.catalog_id ?? item.catalogId);
-}
-
-function normalizeSyncItem(item = {}, fallbackOrder = 0) {
-  const isCollection = Boolean(item.is_collection ?? item.isCollection);
-  const order = Number(item.order);
-  return {
-    addon_id: normalizeString(item.addon_id ?? item.addonId),
-    type: normalizeString(item.type).toLowerCase(),
-    catalog_id: normalizeString(item.catalog_id ?? item.catalogId),
-    enabled: item.enabled !== false,
-    order: Number.isFinite(order) ? Math.trunc(order) : fallbackOrder,
-    custom_title: normalizeString(item.custom_title ?? item.customTitle),
-    is_collection: isCollection,
-    collection_id: normalizeString(item.collection_id ?? item.collectionId)
-  };
-}
-
-function itemHasIdentity(item = {}) {
-  if (item.is_collection) {
-    return Boolean(item.collection_id);
-  }
-  return Boolean(item.addon_id && item.type && item.catalog_id);
-}
-
 function extractSettingsJson(response) {
   const payload = Array.isArray(response) ? response[0] || null : response || null;
   const settingsJson = payload?.settings_json ?? payload?.settingsJson ?? payload;
@@ -270,63 +235,23 @@ function buildCollectionEntries(collections = []) {
   }));
 }
 
-function buildLocalPayload(profileId = null) {
+function buildLocalPayloadState(profileId = null) {
   return addonRepository.getInstalledAddons().then((addons) => {
     const resolvedProfileId = resolveProfileId(profileId);
-    const collections = CollectionsStore.getForProfile(resolvedProfileId);
-    const prefs = HomeCatalogStore.getForProfile(resolvedProfileId);
-    const layout = LayoutPreferences.getForProfile(resolvedProfileId);
-    const customTitles = prefs.customTitles || {};
     const catalogEntries = buildCatalogEntries(addons);
-    const collectionEntries = buildCollectionEntries(collections);
-    const entryByKey = new Map([
-      ...catalogEntries.map((entry) => [entry.key, { ...entry, isCollection: false }]),
-      ...collectionEntries.map((entry) => [entry.key, { ...entry, isCollection: true }])
-    ]);
-    const allKeys = [...catalogEntries.map((entry) => entry.key), ...collectionEntries.map((entry) => entry.key)];
-    const savedValid = (prefs.order || []).filter(
-      (key, index, array) => array.indexOf(key) === index && entryByKey.has(key)
-    );
-    const savedSet = new Set(savedValid);
-    const mergedOrder = [...savedValid, ...allKeys.filter((key) => !savedSet.has(key))];
-    const disabledSet = new Set(prefs.disabled || []);
-
-    const items = mergedOrder
-      .map((key, index) => {
-        const entry = entryByKey.get(key);
-        if (!entry) {
-          return null;
-        }
-        if (entry.isCollection) {
-          return {
-            addon_id: "",
-            type: "",
-            catalog_id: "",
-            enabled: !disabledSet.has(entry.key),
-            order: index,
-            custom_title: normalizeString(customTitles[entry.key]),
-            is_collection: true,
-            collection_id: entry.collectionId
-          };
-        }
-        return {
-          addon_id: entry.addonId,
-          type: entry.type,
-          catalog_id: entry.catalogId,
-          enabled: !disabledSet.has(entry.disableKey) && !disabledSet.has(entry.key),
-          order: index,
-          custom_title: normalizeString(customTitles[entry.key]),
-          is_collection: false,
-          collection_id: ""
-        };
-      })
-      .filter(Boolean);
-
-    return {
-      hide_unreleased_content: Boolean(layout.hideUnreleasedContent),
-      items
-    };
+    const collectionEntries = buildCollectionEntries(CollectionsStore.getForProfile(resolvedProfileId));
+    const payload = composeLocalPayload({
+      catalogEntries,
+      collectionEntries,
+      prefs: HomeCatalogStore.getForProfile(resolvedProfileId),
+      hideUnreleasedContent: LayoutPreferences.getForProfile(resolvedProfileId).hideUnreleasedContent
+    });
+    return { payload, catalogEntries, collectionEntries };
   });
+}
+
+function buildLocalPayload(profileId = null) {
+  return buildLocalPayloadState(profileId).then((state) => state.payload);
 }
 
 function decodePayload(settingsJson = {}, localPayload = {}) {
@@ -400,18 +325,6 @@ function decodePayload(settingsJson = {}, localPayload = {}) {
   };
 }
 
-function payloadSignature(payload = {}) {
-  return stableStringify({
-    hide_unreleased_content: Boolean(payload.hide_unreleased_content),
-    items: (payload.items || []).map((item) => ({
-      key: syncItemKey(item),
-      enabled: item.enabled !== false,
-      order: Number(item.order || 0),
-      custom_title: normalizeString(item.custom_title ?? item.customTitle)
-    }))
-  });
-}
-
 async function fetchRemoteBlob(profileId, platform) {
   const response = await SupabaseApi.rpc(
     PULL_RPC,
@@ -454,24 +367,8 @@ async function fetchBestRemotePayload(profileId, localPayload) {
   };
 }
 
-function applyPayload(profileId, payload = {}) {
-  const sortedItems = (payload.items || [])
-    .map((item, index) => normalizeSyncItem(item, index))
-    .filter(itemHasIdentity)
-    .sort((left, right) => left.order - right.order);
-  const order = sortedItems.map((item) => syncItemKey(item)).filter(Boolean);
-  const disabled = sortedItems
-    .filter((item) => item.enabled === false)
-    .map((item) => syncItemKey(item))
-    .filter(Boolean);
-  const customTitles = sortedItems.reduce((accumulator, item) => {
-    const key = syncItemKey(item);
-    const title = normalizeString(item.custom_title ?? item.customTitle);
-    if (key && title) {
-      accumulator[key] = title;
-    }
-    return accumulator;
-  }, {});
+function applyPayload(profileId, payload = {}, localPayload = null) {
+  const { order, disabled, customTitles } = homeCatalogPrefsFromPayload(payload, localPayload);
 
   HomeCatalogSettingsSyncService.syncingFromRemoteProfiles.add(resolveProfileId(profileId));
   try {

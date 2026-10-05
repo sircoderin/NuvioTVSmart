@@ -14,6 +14,7 @@ export function createHomeScreenMethods22() {
     uniqueById,
     buildCollectionHomeRow,
     withTimeout,
+    mapWithConcurrency,
     buildCatalogLoadingItems,
     normalizeContinueWatchingItem,
     isPresentableContinueWatchingItem
@@ -55,65 +56,50 @@ export function createHomeScreenMethods22() {
       const allowLoading = Boolean(options?.allowLoading);
       const timeoutMs = Number(options?.timeoutMs || HOME_ROW_TIMEOUT_MS);
       const loadingCount = this.getLoadingRowItemCount();
-      const batchSize = Math.max(0, Number(options?.batchSize || 0));
-      const onBatch = typeof options?.onBatch === "function" ? options.onBatch : null;
+      const concurrency = Math.max(0, Number(options?.concurrency || 0));
       const onRow = typeof options?.onRow === "function" ? options.onRow : null;
-      const fetchedRows = [];
+      const shouldContinue = typeof options?.shouldContinue === "function" ? options.shouldContinue : null;
       const normalizedDescriptors = Array.isArray(descriptors) ? descriptors : [];
 
-      const fetchBatch = async (batchDescriptors = []) => {
-        const rowResults = await Promise.all(
-          batchDescriptors.map(async (catalog) => {
-            const result = this.filterUnreleasedResult(
-              await withTimeout(
-                catalogRepository.getCatalog({
-                  addonBaseUrl: catalog.addonBaseUrl,
-                  addonId: catalog.addonId,
-                  addonName: catalog.addonName,
-                  catalogId: catalog.catalogId,
-                  catalogName: catalog.catalogName,
-                  type: catalog.type,
-                  skip: 0,
-                  skipStep: catalog.skipStep,
-                  supportsSkip: catalog.supportsSkip !== false
-                }),
-                timeoutMs,
-                { status: "error", message: "timeout" }
-              )
-            );
-            const rowKey = buildModernRowKey(catalog);
-            const row = {
-              ...catalog,
-              result: result?.status === "success" ? result : allowLoading ? { status: "loading" } : result,
-              loadingItems: allowLoading && result?.status !== "success" ? buildCatalogLoadingItems(rowKey, loadingCount) : null,
-              homeCatalogKey: buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId),
-              homeCatalogDisableKey: buildCatalogDisableKey(catalog.addonBaseUrl, catalog.type, catalog.catalogId, catalog.catalogName)
-            };
-            if (onRow && (row.result?.status === "success" || allowLoading)) {
-              onRow(row);
-            }
-            return row;
-          })
-        );
-        const mappedRows = rowResults.filter((row) => row.result?.status === "success" || allowLoading);
-        fetchedRows.push(...mappedRows);
-        if (onBatch && mappedRows.length) {
-          onBatch(mappedRows);
+      const fetchRow = async (catalog) => {
+        if (shouldContinue && !shouldContinue()) {
+          return null;
         }
+        const result = this.filterUnreleasedResult(
+          await withTimeout(
+            catalogRepository.getCatalog({
+              addonBaseUrl: catalog.addonBaseUrl,
+              addonId: catalog.addonId,
+              addonName: catalog.addonName,
+              catalogId: catalog.catalogId,
+              catalogName: catalog.catalogName,
+              type: catalog.type,
+              skip: 0,
+              skipStep: catalog.skipStep,
+              supportsSkip: catalog.supportsSkip !== false
+            }),
+            timeoutMs,
+            { status: "error", message: "timeout" }
+          )
+        );
+        const rowKey = buildModernRowKey(catalog);
+        const row = {
+          ...catalog,
+          result: result?.status === "success" ? result : allowLoading ? { status: "loading" } : result,
+          loadingItems: allowLoading && result?.status !== "success" ? buildCatalogLoadingItems(rowKey, loadingCount) : null,
+          homeCatalogKey: buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId),
+          homeCatalogDisableKey: buildCatalogDisableKey(catalog.addonBaseUrl, catalog.type, catalog.catalogId, catalog.catalogName)
+        };
+        if (onRow && (row.result?.status === "success" || allowLoading)) {
+          onRow(row);
+        }
+        return row;
       };
 
-      if (batchSize > 0 && normalizedDescriptors.length > batchSize) {
-        for (let index = 0; index < normalizedDescriptors.length; index += batchSize) {
-          await fetchBatch(normalizedDescriptors.slice(index, index + batchSize));
-          if (index + batchSize < normalizedDescriptors.length) {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-          }
-        }
-        return fetchedRows;
-      }
-
-      await fetchBatch(normalizedDescriptors);
-      return fetchedRows;
+      // Each request starts as soon as a slot frees, so a slow catalog does not
+      // hold back the catalogs after it.
+      const rows = await mapWithConcurrency(normalizedDescriptors, concurrency || normalizedDescriptors.length, fetchRow);
+      return rows.filter((row) => row && (row.result?.status === "success" || allowLoading));
     },
     sortAndFilterRows(rows = [], collections = []) {
       const collectionRows = (Array.isArray(collections) ? collections : [])

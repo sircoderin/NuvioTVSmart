@@ -399,7 +399,7 @@ export function createHomeScreenMethods04() {
         }
         this.lastHomeCatalogRefreshAtMs = Date.now();
         const refreshedRows = await this.fetchCatalogRows(descriptors, {
-          batchSize: this.getDeferredCatalogBatchSize()
+          concurrency: this.getDeferredCatalogBatchSize()
         });
         if (
           token !== this.homeLoadToken ||

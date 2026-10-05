@@ -282,9 +282,12 @@ export function createHomeScreenMethods21() {
             this.requestBackgroundRender();
           }
         });
+        // Request every deferred catalog at once: responses reach the page only
+        // between main-thread tasks, so a cap on requests in flight lets each
+        // Home render delay the next catalogs.
         this.fetchCatalogRows(deferredDescriptors, {
           allowLoading: true,
-          batchSize: this.getDeferredCatalogBatchSize(),
+          shouldContinue: () => token === this.homeLoadToken,
           onRow: (row) => {
             if (token === this.homeLoadToken && Router.getCurrent() === "home") {
               deferredRows.add(row);

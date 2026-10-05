@@ -85,6 +85,11 @@ export const ProfileManager = {
     return DEFAULT_PROFILES;
   },
 
+  getStoredProfilesSnapshot() {
+    const stored = LocalStore.get(PROFILES_KEY, null);
+    return Array.isArray(stored) ? stored : null;
+  },
+
   async replaceProfiles(profiles) {
     const normalized = (Array.isArray(profiles) ? profiles : []).map((profile, index) =>
       normalizeProfile(profile, index)

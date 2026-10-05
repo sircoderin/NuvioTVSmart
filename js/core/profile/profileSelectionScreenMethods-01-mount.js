@@ -70,11 +70,13 @@ export function createProfileSelectionScreenMethods01() {
       this._bgTargetColor = null;
 
       const skipInitialProfileSync = Boolean(params?.skipInitialProfileSync);
-      const profilePinEnabled = skipInitialProfileSync
-        ? params?.profilePinEnabled || {}
-        : (await Promise.all([ProfileSyncService.pull(), ProfileSyncService.pullProfileLockStates()]))[1];
+      const mountToken = (this.profileMountToken = Number(this.profileMountToken || 0) + 1);
+      // Paint the locally stored profiles first; the remote profile and lock
+      // pulls refresh them afterwards. Activation waits for the lock states so
+      // a newly locked profile still asks for its PIN.
+      this.profileStatePromise = skipInitialProfileSync ? null : this.refreshRemoteProfileState(mountToken);
       this.profiles = await ProfileManager.getProfiles();
-      this.profilePinEnabled = profilePinEnabled;
+      this.profilePinEnabled = skipInitialProfileSync ? params?.profilePinEnabled || {} : {};
       this.lastProfileFocusKey = `profile:${this.activeProfileId || "1"}`;
       globalThis.NuvioBootGuard?.stage?.("Loading profile avatars");
       await this.refreshMemberFeatures({ render: false });
@@ -97,6 +99,32 @@ export function createProfileSelectionScreenMethods01() {
         }
       });
       this.render();
+    },
+    async refreshRemoteProfileState(mountToken) {
+      const [, profilePinEnabled] = await Promise.all([ProfileSyncService.pull(), ProfileSyncService.pullProfileLockStates()]);
+      const profiles = await ProfileManager.getProfiles();
+      if (!this.isMounted || mountToken !== this.profileMountToken) {
+        return;
+      }
+      this.profilePinEnabled = profilePinEnabled || {};
+      const profilesChanged = JSON.stringify(profiles) !== JSON.stringify(this.profiles || []);
+      this.profiles = profiles;
+      const overlayOpen = Boolean(this.editorState || this.pinOverlayState || this._optionsDialog || this._deleteDialog);
+      if (profilesChanged && !overlayOpen && this.container) {
+        this.render();
+      }
+    },
+    async waitForRemoteProfileState() {
+      const pending = this.profileStatePromise;
+      if (!pending) {
+        return;
+      }
+      await pending.catch((error) => {
+        console.warn("Profile state refresh failed", error);
+      });
+      if (this.profileStatePromise === pending) {
+        this.profileStatePromise = null;
+      }
     },
     async loadAvatarCatalog(hasMemberAccess = this.hasProfileAvatarAccess) {
       try {

@@ -125,6 +125,7 @@ export function createRouterMethods02() {
 
       this.current = routeName;
       this.currentParams = targetParams;
+      this.recordRouteVisit(routeName);
       const navigationContext = this.resolveNavigationContext(routeName, this.currentParams, {
         ...options,
         previousRoute

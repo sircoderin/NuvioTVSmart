@@ -157,12 +157,19 @@ export function createHomeScreenMethods20() {
         this.scheduleHomeLazyImageHydration();
         this.scheduleReturnFocusRestore();
         this.ensureStartupSyncSubscription();
-        this.requestHomeBackgroundRefresh({
-          preserveReturnState: true,
-          reason: "route-resume"
-        }).catch((error) => {
-          console.warn("Home background refresh failed", error);
-        });
+        if (this.canSkipHomeResumeRefresh()) {
+          logHomePerf("backgroundRefreshSkipped", { reason: "route-resume" });
+          void this.refreshHomeCatalogsIfStale({ reason: "route-resume" }).catch((error) => {
+            console.warn("Home stale-catalog refresh failed", error);
+          });
+        } else {
+          this.requestHomeBackgroundRefresh({
+            preserveReturnState: true,
+            reason: "route-resume"
+          }).catch((error) => {
+            console.warn("Home background refresh failed", error);
+          });
+        }
         logHomePerf("mount", {
           ms: Number((homePerfNow() - mountStart).toFixed(2)),
           route: "home",

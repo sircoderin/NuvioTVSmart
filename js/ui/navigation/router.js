@@ -161,6 +161,8 @@ Object.assign(Router, {
   routeReturnBackGuardNavigationId: 0,
   pendingHistoryReturn: null,
   pendingPostPlayNavigation: null,
+  routeVisitSequence: 0,
+  routeVisitLog: [],
   routes: {
     home: HomeScreen,
     player: PlayerScreen,

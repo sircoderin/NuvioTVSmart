@@ -98,6 +98,15 @@ export function createProfileSelectionScreenMethods05() {
       if (!profile) {
         return;
       }
+      if (this.profileStatePromise) {
+        // The PIN option depends on the remote lock state.
+        void this.waitForRemoteProfileState().then(() => {
+          if (this.isMounted && !this.profileStatePromise) {
+            this.openOptionsDialog(this.getProfileById(profile.id));
+          }
+        });
+        return;
+      }
       // Destroy any existing dialogs
       this._destroyDialogs();
 

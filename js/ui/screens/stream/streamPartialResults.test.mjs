@@ -252,11 +252,19 @@ test("a slower first-ranked source takes initial focus until the user moves", as
         ["preferred", "quick"]
       );
       if (userMoved) {
-        assert.equal(screen.streamVirtualFocusReset, undefined, "user focus is left to identity tracking");
+        assert.equal(
+          screen.streamVirtualFocusReset,
+          undefined,
+          "user focus is left to identity tracking"
+        );
         assert.equal(screen.focusState.action, "native");
       } else {
         assert.equal(screen.focusState.row, 0);
-        assert.equal(screen.streamVirtualFocusReset, true, "render must not pin focus to the quick source");
+        assert.equal(
+          screen.streamVirtualFocusReset,
+          true,
+          "render must not pin focus to the quick source"
+        );
       }
       finish({ status: "success", data: [] });
       await loading;

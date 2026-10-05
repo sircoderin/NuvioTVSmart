@@ -23,6 +23,22 @@ export function createProfileSelectionScreenMethods07() {
       const action = String(node?.dataset?.action || "");
       const profileId = node?.dataset?.profileId;
 
+      // Profile actions depend on the remote lock states started at mount.
+      if (profileId && this.profileStatePromise) {
+        if (this.isAwaitingProfileState) {
+          return;
+        }
+        this.isAwaitingProfileState = true;
+        try {
+          await this.waitForRemoteProfileState();
+        } finally {
+          this.isAwaitingProfileState = false;
+        }
+        if (!this.isMounted) {
+          return;
+        }
+      }
+
       if (action === "cancel-editor") {
         this.closeEditor();
         return;
@@ -159,6 +175,7 @@ export function createProfileSelectionScreenMethods07() {
           (node) => String(node.dataset.profileId || "") === String(profileId)
         ) || null;
       profileCard?.classList?.add("is-activating");
+      const previousProfileId = String(ProfileManager.getActiveProfileId() || "");
       try {
         // A provider started under the previous profile must not publish late
         // results into the newly selected profile's stream screen.
@@ -176,9 +193,12 @@ export function createProfileSelectionScreenMethods07() {
         }).catch((error) => {
           console.warn("Profile background sync failed", error);
         });
+        // Re-selecting the active profile keeps the preserved Home; its resume
+        // path still reloads when any Home input changed.
+        const sameProfile = previousProfileId === String(profileId);
         await Router.navigate(
           experienceRoute,
-          experienceRoute === "home" ? { forceReload: true } : {},
+          experienceRoute === "home" && !sameProfile ? { forceReload: true } : {},
           experienceRoute === "home" ? {} : { replaceHistory: true, skipStackPush: true }
         );
       } catch (error) {

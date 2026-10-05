@@ -9,6 +9,16 @@ export const LocalStore = {
     }
   },
 
+  /** The stored JSON text, unparsed; lets callers detect changes cheaply. */
+  getRaw(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.error("LocalStore get error:", e);
+      return null;
+    }
+  },
+
   set(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));

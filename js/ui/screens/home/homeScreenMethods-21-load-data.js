@@ -42,6 +42,7 @@ export function createHomeScreenMethods21() {
       const prefs = LayoutPreferences.get();
       this.layoutPrefs = prefs;
       this.renderedSyncSensitiveSignature = this.buildSyncSensitiveHomeSignature();
+      this.rememberHomeResumeInputs();
       // Async catalog/progress refreshes must not collapse a focused sidebar.
       // Android keeps this presentation state outside the Home data flow.
       this.sidebarExpanded = Boolean(this.sidebarExpanded);

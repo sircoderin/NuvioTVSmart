@@ -40,6 +40,7 @@ class AddonRepository {
     this.installedAddonsPromiseKey = "";
     this.changeListeners = new Set();
     this.manifestChangeListeners = new Set();
+    this.addonChangeRevision = 0;
     this.restoreManifestCache();
   }
 
@@ -873,7 +874,23 @@ class AddonRepository {
     };
   }
 
+  /**
+   * Cheap identity for the installed-addon inputs Home renders from. It covers
+   * storage writes that bypass change notifications (sync pulls) through the
+   * stored lists, and manifest/addon notifications through the revision.
+   */
+  getInstalledAddonsFingerprint() {
+    return JSON.stringify([
+      this.getActiveStorageProfileId(),
+      this.getInstalledAddonUrls(),
+      this.getAddonEnabledStates(),
+      this.getAddonDisplayNameOverrides(),
+      this.addonChangeRevision
+    ]);
+  }
+
   notifyAddonsChanged(reason = "unknown") {
+    this.addonChangeRevision += 1;
     this.invalidateInstalledAddonsCache();
     this.changeListeners.forEach((listener) => {
       try {
@@ -885,6 +902,7 @@ class AddonRepository {
   }
 
   notifyManifestCacheChanged() {
+    this.addonChangeRevision += 1;
     this.manifestChangeListeners.forEach((listener) => {
       try {
         listener();

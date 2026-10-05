@@ -65,18 +65,46 @@ function normalizeEnvelopeProfiles(profiles = {}, normalize) {
   return normalized;
 }
 
+// Normalized envelopes keyed by their exact stored text. Reads happen on every
+// settings lookup (Home calls several per row); reparsing and renormalizing all
+// profiles each time is costly on TVs. The raw comparison also catches writes
+// made through other code paths.
+const envelopeReadCache = new Map();
+
+function copyEnvelope(envelope) {
+  // Callers assign or delete profile entries before persisting; keep those
+  // edits off the cached object. Profile values are cloned before exposure.
+  return { ...envelope, profiles: { ...envelope.profiles } };
+}
+
 function readEnvelope(key, normalize, legacyProfileIds = null) {
+  const storedText = LocalStore.getRaw(key);
+  const cached = envelopeReadCache.get(key);
+  if (
+    cached &&
+    storedText !== null &&
+    cached.storedText === storedText &&
+    cached.normalize === normalize
+  ) {
+    return copyEnvelope(cached.envelope);
+  }
   const raw = LocalStore.get(key, null);
   if (isProfileScopedEnvelope(raw)) {
     const next = {
       ...raw,
       profiles: normalizeEnvelopeProfiles(raw.profiles, normalize)
     };
+    let nextStoredText = storedText;
     if (JSON.stringify(next) !== JSON.stringify(raw)) {
       LocalStore.set(key, next);
+      nextStoredText = LocalStore.getRaw(key);
     }
-    return next;
+    if (nextStoredText !== null) {
+      envelopeReadCache.set(key, { storedText: nextStoredText, normalize, envelope: next });
+    }
+    return copyEnvelope(next);
   }
+  envelopeReadCache.delete(key);
 
   if (raw == null) {
     return createEmptyEnvelope();

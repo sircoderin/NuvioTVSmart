@@ -395,7 +395,7 @@
   font-size: 22px;
 }
 
-/* Player episode management mirrors the Android TV 520dp side panel.
+/* Player episode and source panels mirror the Android TV 520dp side panel.
    Keep these values in CSS pixels: TV browsers already expose a TV-sized
    viewport, so the previous 2x conversion made the panel and cards oversized. */
 
@@ -405,7 +405,8 @@
 }
 
 .player-episode-panel,
-.legacy-webos .player-episode-panel {
+.legacy-webos .player-episode-panel,
+.player-sources-panel {
   top: 0;
   right: 0;
   width: 520px;
@@ -430,12 +431,14 @@
 }
 
 .player-episode-panel-header,
-.legacy-webos .player-episode-panel-header {
+.legacy-webos .player-episode-panel-header,
+.player-sources-header {
   gap: 12px;
 }
 
 .player-episode-panel-title,
-.legacy-webos .player-episode-panel-title {
+.legacy-webos .player-episode-panel-title,
+.player-sources-title {
   font-size: 24px;
   line-height: 32px;
   font-weight: 600;
@@ -443,7 +446,8 @@
 
 .player-episode-close-btn,
 .legacy-webos .player-episode-close-btn,
-.player-episode-stream-action {
+.player-episode-stream-action,
+.player-sources-top-btn {
   min-width: 0;
   height: 40px;
   padding: 0 16px;
@@ -458,7 +462,8 @@
 
 .player-episode-close-btn.focused,
 .legacy-webos .player-episode-close-btn.focused,
-.player-episode-stream-action.focused {
+.player-episode-stream-action.focused,
+.player-sources-top-btn.focused {
   border-color: var(--player-focus-ring);
   background: var(--player-focus-background);
   color: var(--player-atv-primary);

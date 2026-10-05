@@ -1,6 +1,7 @@
 .player-episode-season-tab,
 .legacy-webos .player-episode-season-tab,
-.player-episode-stream-filter {
+.player-episode-stream-filter,
+.player-sources-filter {
   height: 40px;
   padding: 0 20px;
   border: 1px solid var(--player-atv-border);
@@ -14,7 +15,8 @@
 
 .player-episode-season-tab.selected,
 .legacy-webos .player-episode-season-tab.selected,
-.player-episode-stream-filter.selected {
+.player-episode-stream-filter.selected,
+.player-sources-filter.selected {
   border-color: transparent;
   background: #f5f5f5;
   color: #000;
@@ -25,7 +27,9 @@
 .legacy-webos .player-episode-season-tab.focused,
 .legacy-webos .player-episode-season-tab.selected.focused,
 .player-episode-stream-filter.focused,
-.player-episode-stream-filter.selected.focused {
+.player-episode-stream-filter.selected.focused,
+.player-sources-filter.focused,
+.player-sources-filter.selected.focused {
   border: 2px solid var(--player-focus-ring);
   background: var(--player-secondary);
   color: var(--player-on-secondary);
@@ -139,7 +143,8 @@
   margin-right: 0;
 }
 
-.player-episode-stream-meta {
+.player-episode-stream-meta,
+.player-source-current-meta {
   min-width: 0;
   overflow: hidden;
   color: var(--player-atv-text-secondary);
@@ -149,7 +154,8 @@
   white-space: nowrap;
 }
 
-.player-episode-stream-filters {
+.player-episode-stream-filters,
+.player-sources-filters {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -177,7 +183,8 @@
   flex: 0 0 auto;
 }
 
-.player-episode-stream-list {
+.player-episode-stream-list,
+.player-sources-list {
   flex: 1 1 auto;
   min-height: 0;
   margin-top: 16px;
@@ -188,7 +195,8 @@
 }
 
 .player-episode-stream-card,
-.legacy-webos .player-episode-stream-card {
+.legacy-webos .player-episode-stream-card,
+.player-sources-panel .player-source-card {
   gap: 16px;
   padding: 16px;
   margin-bottom: 8px;
@@ -198,30 +206,35 @@
 }
 
 .player-episode-stream-card.focused,
-.legacy-webos .player-episode-stream-card.focused {
+.legacy-webos .player-episode-stream-card.focused,
+.player-sources-panel .player-source-card.focused {
   border: 2px solid var(--player-focus-ring);
   background: var(--player-background-elevated);
   transform: scale(1.04);
 }
 
-.player-episode-stream-card .player-source-title {
+.player-episode-stream-card .player-source-title,
+.player-sources-panel .player-source-title {
   font-size: 16px;
   line-height: 24px;
 }
 
-.player-episode-stream-card .player-source-desc {
+.player-episode-stream-card .player-source-desc,
+.player-sources-panel .player-source-desc {
   font-size: 12px;
   line-height: 16px;
 }
 
-.player-episode-stream-card .player-source-logo {
+.player-episode-stream-card .player-source-logo,
+.player-sources-panel .player-source-logo {
   width: 32px;
   height: 32px;
   margin-bottom: 4px;
   border-radius: 4px;
 }
 
-.player-episode-stream-card .player-source-addon {
+.player-episode-stream-card .player-source-addon,
+.player-sources-panel .player-source-addon {
   max-width: 92px;
   overflow: hidden;
   font-size: 10px;
@@ -230,7 +243,8 @@
   white-space: nowrap;
 }
 
-.player-episode-stream-empty {
+.player-episode-stream-empty,
+.player-sources-empty {
   padding: 24px 0;
   color: rgba(255, 255, 255, 0.7);
   font-size: 16px;

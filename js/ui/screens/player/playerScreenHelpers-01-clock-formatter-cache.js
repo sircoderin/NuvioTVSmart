@@ -262,7 +262,20 @@ export const SOURCE_NAVIGATION_REPEAT_THROTTLE_MS = 112;
 
 export const EPISODE_PANEL_TRANSITION_MS = 220;
 
-export const EPISODE_STREAM_RENDER_BATCH = 10;
+export const PLAYER_STREAM_CARD_RENDER_BATCH = 10;
+
+export function getStreamCardRenderLimit(previousLimit, focusIndex, total) {
+  const limit = Math.max(
+    Number(previousLimit || 0),
+    PLAYER_STREAM_CARD_RENDER_BATCH,
+    Number(focusIndex || 0) + 1 + Math.ceil(PLAYER_STREAM_CARD_RENDER_BATCH / 2)
+  );
+  return Math.min(total, limit);
+}
+
+export function shouldAppendStreamCards(focusIndex, renderedLimit) {
+  return focusIndex >= renderedLimit - Math.ceil(PLAYER_STREAM_CARD_RENDER_BATCH / 2);
+}
 
 export const activeEngineFsPlaybackClaims = new Map();
 

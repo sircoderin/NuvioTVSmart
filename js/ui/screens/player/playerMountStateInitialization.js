@@ -127,6 +127,7 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.sourcePanelRenderFrameType = null;
   this.sourcesLastNavigationRepeatAt = 0;
   this.renderedSourcesMarkup = null;
+  this.sourcesRenderLimit = 0;
   this.streamCandidatesByVideoId = new Map();
   this.streamCandidatesLoadPromises = new Map();
 

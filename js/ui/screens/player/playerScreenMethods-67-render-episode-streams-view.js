@@ -10,7 +10,8 @@ export function createPlayerScreenMethods67() {
     contentTextDirection,
     ENGINEFS_NAVIGATION_CLEANUP_GRACE_MS,
     EPISODE_PANEL_TRANSITION_MS,
-    EPISODE_STREAM_RENDER_BATCH,
+    PLAYER_STREAM_CARD_RENDER_BATCH,
+    getStreamCardRenderLimit,
     t,
     escapeHtml,
     escapeAttribute,
@@ -65,12 +66,7 @@ export function createPlayerScreenMethods67() {
     getEpisodeStreamRenderLimit(streamCount) {
       const focus = this.episodePanelStreamFocus || {};
       const focusIndex = focus.zone === "streams" ? Number(focus.index || 0) : 0;
-      const limit = Math.max(
-        Number(this.episodePanelStreamRenderLimit || 0),
-        EPISODE_STREAM_RENDER_BATCH,
-        focusIndex + 1 + Math.ceil(EPISODE_STREAM_RENDER_BATCH / 2)
-      );
-      return Math.min(streamCount, limit);
+      return getStreamCardRenderLimit(this.episodePanelStreamRenderLimit, focusIndex, streamCount);
     },
     appendEpisodeStreamCards(minimumCount = 0) {
       const list = this.uiRefs?.root?.querySelector("#episodeSidePanel .player-episode-stream-list");
@@ -79,7 +75,7 @@ export function createPlayerScreenMethods67() {
       if (!list || rendered >= streams.length || rendered < Number(this.episodePanelStreamRenderLimit || 0)) {
         return false;
       }
-      const target = Math.min(streams.length, Math.max(minimumCount, rendered + EPISODE_STREAM_RENDER_BATCH));
+      const target = Math.min(streams.length, Math.max(minimumCount, rendered + PLAYER_STREAM_CARD_RENDER_BATCH));
       const context = this.getEpisodeStreamCardContext();
       const markup = streams
         .slice(rendered, target)

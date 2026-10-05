@@ -16,6 +16,9 @@ export function createPlayerScreenMethods63() {
     getPlayerSourceLogoDisplayUrl,
     renderPlayerSourceBadges,
     resolvePlayerSourceBadgePlacement,
+    PLAYER_STREAM_CARD_RENDER_BATCH,
+    getStreamCardRenderLimit,
+    shouldAppendStreamCards,
     flattenStreamGroups,
     mergeStreamItems
   } = internals;
@@ -159,6 +162,75 @@ export function createPlayerScreenMethods63() {
         list.scrollTop += targetRect.bottom - (listRect.bottom - padding);
       }
     },
+    getSourceCardContext() {
+      const badgeSettings = StreamBadgeSettingsStore.snapshot();
+      return {
+        badgeSettings,
+        showAddonLogo: badgeSettings.showAddonLogo === true,
+        badgePlacement: resolvePlayerSourceBadgePlacement(badgeSettings),
+        focus: this.sourcesFocus || {},
+        currentUrl: this.streamCandidates[this.currentStreamIndex]?.url
+      };
+    },
+    renderSourceCard(stream, index, context) {
+      const { badgeSettings, showAddonLogo, badgePlacement, focus, currentUrl } = context;
+      const focused = focus.zone === "list" && focus.index === index;
+      const isCurrent = currentUrl === stream.url;
+      const badges = renderPlayerSourceBadges(stream, badgeSettings);
+      const topBadges = badgePlacement === "TOP" ? badges : "";
+      const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
+      const addonLogoUrl = showAddonLogo ? getPlayerSourceLogoDisplayUrl(stream.addonLogo, () => this.scheduleSourceLogoRender()) : "";
+      const playingMarker = isCurrent ? `<div class="player-source-playing">${escapeHtml(t("sources_playing", {}, "Playing"))}</div>` : "";
+      const sourceLabel = stream.label || "Stream";
+      const sourceDescription = stream.description || stream.addonName || "";
+      const sourceAddonName = stream.addonName || t("nav_addons", {}, "Addon");
+      const sourceTitle = `<div class="player-source-title" dir="${contentTextDirection(sourceLabel)}">${escapeHtml(sourceLabel)}</div>`;
+      const mainTitle =
+        !showAddonLogo && playingMarker ? `<div class="player-source-title-row">${sourceTitle}${playingMarker}</div>` : sourceTitle;
+      const sourceSide = showAddonLogo
+        ? `<div class="player-source-side">
+            ${addonLogoUrl ? `<img class="player-source-logo" src="${escapeAttribute(addonLogoUrl)}" alt="" decoding="async" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+            <div class="player-source-addon" dir="${contentTextDirection(sourceAddonName)}">${escapeHtml(sourceAddonName)}</div>
+            ${playingMarker}
+          </div>`
+        : "";
+      return `
+        <article class="player-source-card${sourceSide ? "" : " no-side"} focusable${focused ? " focused" : ""}${isCurrent ? " selected" : ""}" data-sources-zone="list" data-sources-index="${index}">
+          <div class="player-source-main">
+            ${topBadges}
+            ${mainTitle}
+            <div class="player-source-desc" dir="${contentTextDirection(sourceDescription)}">${escapeHtml(sourceDescription)}</div>
+            ${bottomBadges}
+          </div>
+          ${sourceSide}
+        </article>
+      `;
+    },
+    appendSourceCards(minimumCount = 0) {
+      const list = this.uiRefs?.sourcesPanel?.querySelector(".player-sources-list");
+      const sources = this.getFilteredSources();
+      const rendered = list ? list.querySelectorAll("[data-sources-zone='list']").length : 0;
+      if (!list || rendered >= sources.length || rendered < Number(this.sourcesRenderLimit || 0)) {
+        return;
+      }
+      const target = Math.min(sources.length, Math.max(minimumCount, rendered + PLAYER_STREAM_CARD_RENDER_BATCH));
+      const context = this.getSourceCardContext();
+      list.insertAdjacentHTML(
+        "beforeend",
+        sources
+          .slice(rendered, target)
+          .map((stream, offset) => this.renderSourceCard(stream, rendered + offset, context))
+          .join("")
+      );
+      this.sourcesRenderLimit = target;
+      this.renderedSourcesMarkup = null;
+    },
+    handleSourcesListScroll(event) {
+      const list = event?.currentTarget;
+      if (list && list.scrollTop + list.clientHeight >= list.scrollHeight - list.clientHeight) {
+        this.appendSourceCards();
+      }
+    },
     renderSourcesPanel() {
       this.cancelScheduledSourcesPanelRender();
       const panel = this.uiRefs?.sourcesPanel;
@@ -172,16 +244,18 @@ export function createPlayerScreenMethods63() {
           panel.innerHTML = "";
         }
         this.renderedSourcesMarkup = null;
+        this.sourcesRenderLimit = 0;
         return;
       }
 
       const orderedSources = this.getOrderedStreamCandidates();
       const filters = this.getSourceFilters(orderedSources);
       const filtered = this.getFilteredSources(orderedSources);
-      const badgeSettings = StreamBadgeSettingsStore.snapshot();
-      const showAddonLogo = badgeSettings.showAddonLogo === true;
-      const badgePlacement = resolvePlayerSourceBadgePlacement(badgeSettings);
       this.ensureSourcesFocus(filters, filtered);
+      const cardContext = this.getSourceCardContext();
+      const focusIndex = this.sourcesFocus.zone === "list" ? Number(this.sourcesFocus.index || 0) : 0;
+      const renderLimit = getStreamCardRenderLimit(this.sourcesRenderLimit, focusIndex, filtered.length);
+      this.sourcesRenderLimit = renderLimit;
 
       const nextMarkup = `
           <div class="player-sources-header">
@@ -221,45 +295,8 @@ export function createPlayerScreenMethods63() {
               !this.sourcesLoading && !filtered.length
                 ? `<div class="player-sources-empty">${escapeHtml(t("sources_no_streams", {}, "No streams found"))}</div>`
                 : filtered
-                    .map((stream, index) => {
-                      const focused = this.sourcesFocus.zone === "list" && this.sourcesFocus.index === index;
-                      const isCurrent = this.streamCandidates[this.currentStreamIndex]?.url === stream.url;
-                      const badges = renderPlayerSourceBadges(stream, badgeSettings);
-                      const topBadges = badgePlacement === "TOP" ? badges : "";
-                      const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
-                      const addonLogoUrl = showAddonLogo
-                        ? getPlayerSourceLogoDisplayUrl(stream.addonLogo, () => this.scheduleSourceLogoRender())
-                        : "";
-                      const playingMarker = isCurrent
-                        ? `<div class="player-source-playing">${escapeHtml(t("sources_playing", {}, "Playing"))}</div>`
-                        : "";
-                      const sourceLabel = stream.label || "Stream";
-                      const sourceDescription = stream.description || stream.addonName || "";
-                      const sourceAddonName = stream.addonName || t("nav_addons", {}, "Addon");
-                      const sourceTitle = `<div class="player-source-title" dir="${contentTextDirection(sourceLabel)}">${escapeHtml(sourceLabel)}</div>`;
-                      const mainTitle =
-                        !showAddonLogo && playingMarker
-                          ? `<div class="player-source-title-row">${sourceTitle}${playingMarker}</div>`
-                          : sourceTitle;
-                      const sourceSide = showAddonLogo
-                        ? `<div class="player-source-side">
-                      ${addonLogoUrl ? `<img class="player-source-logo" src="${escapeAttribute(addonLogoUrl)}" alt="" decoding="async" loading="lazy" referrerpolicy="no-referrer" />` : ""}
-                      <div class="player-source-addon" dir="${contentTextDirection(sourceAddonName)}">${escapeHtml(sourceAddonName)}</div>
-                      ${playingMarker}
-                    </div>`
-                        : "";
-                      return `
-                  <article class="player-source-card${sourceSide ? "" : " no-side"} focusable${focused ? " focused" : ""}${isCurrent ? " selected" : ""}" data-sources-zone="list" data-sources-index="${index}">
-                    <div class="player-source-main">
-                      ${topBadges}
-                      ${mainTitle}
-                      <div class="player-source-desc" dir="${contentTextDirection(sourceDescription)}">${escapeHtml(sourceDescription)}</div>
-                      ${bottomBadges}
-                    </div>
-                    ${sourceSide}
-                  </article>
-                `;
-                    })
+                    .slice(0, renderLimit)
+                    .map((stream, index) => this.renderSourceCard(stream, index, cardContext))
                     .join("")
             }
           </div>
@@ -273,6 +310,9 @@ export function createPlayerScreenMethods63() {
       if (!markupUnchanged) {
         panel.innerHTML = nextMarkup;
         this.renderedSourcesMarkup = nextMarkup;
+        panel.querySelector(".player-sources-list")?.addEventListener("scroll", (event) => this.handleSourcesListScroll(event), {
+          passive: true
+        });
       }
 
       const focusedCard = panel.querySelector(".player-source-card.focused");
@@ -288,6 +328,9 @@ export function createPlayerScreenMethods63() {
 
       const zone = String(this.sourcesFocus?.zone || "filter");
       const index = Number(this.sourcesFocus?.index || 0);
+      if (zone === "list" && shouldAppendStreamCards(index, Number(this.sourcesRenderLimit || 0))) {
+        this.appendSourceCards(index + 1);
+      }
       const focusedNode = panel.querySelector(`[data-sources-zone="${zone}"][data-sources-index="${index}"]`);
       // Source/filter data can change asynchronously while the panel is open.
       // If the live DOM no longer represents the state, retain the existing full

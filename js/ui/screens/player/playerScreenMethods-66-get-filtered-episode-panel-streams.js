@@ -2,7 +2,7 @@
 import * as internals from "./playerScreenContext.js";
 
 export function createPlayerScreenMethods66() {
-  const { streamRepository, EPISODE_STREAM_RENDER_BATCH, isSelectKeyCode, t, clamp, normalizeItemType } = internals;
+  const { streamRepository, shouldAppendStreamCards, isSelectKeyCode, t, clamp, normalizeItemType } = internals;
 
   return {
     getFilteredEpisodePanelStreams() {
@@ -324,7 +324,7 @@ export function createPlayerScreenMethods66() {
       if (focus.zone === "filters") {
         return panel.querySelector(`[data-episode-stream-filter-index="${index}"]`);
       }
-      if (index >= Number(this.episodePanelStreamRenderLimit || 0) - Math.ceil(EPISODE_STREAM_RENDER_BATCH / 2)) {
+      if (shouldAppendStreamCards(index, Number(this.episodePanelStreamRenderLimit || 0))) {
         this.appendEpisodeStreamCards(index + 1);
       }
       return panel.querySelector(`[data-episode-stream-index="${index}"]`);

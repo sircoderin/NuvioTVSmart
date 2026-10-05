@@ -248,6 +248,7 @@ export function createPlayerScreenMethods62() {
         return;
       }
       this.sourceFilter = filter;
+      this.sourcesRenderLimit = 0;
       this.sourcesFocus = {
         zone: "filter",
         index: clamp(available.indexOf(filter), 0, available.length - 1)
@@ -292,6 +293,7 @@ export function createPlayerScreenMethods62() {
       streamRepository.setLocalPluginSearchPaused(false);
       this.cancelSeekPreview({ commit: false });
       this.sourcesPanelVisible = true;
+      this.sourcesRenderLimit = 0;
       this.sourcesLastNavigationRepeatAt = 0;
       this.subtitleDialogVisible = false;
       this.audioDialogVisible = false;

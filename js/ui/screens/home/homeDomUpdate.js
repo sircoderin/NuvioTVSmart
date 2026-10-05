@@ -30,13 +30,19 @@ function key(node) {
   return `${node.tagName}:${node.classList.item(0) || ""}`;
 }
 
+// Serializing every element repeats each subtree once per ancestor, which cost
+// seconds per Home load on TVs. Rows and cards are where unchanged markup is
+// worth skipping; other elements are compared node by node.
 function signature(node) {
-  return node.nodeType === 1 ? node.outerHTML : node.textContent;
+  if (node.nodeType !== 1) return node.textContent;
+  return node.classList.contains("home-content-card") || node.dataset.rowKey
+    ? node.outerHTML
+    : null;
 }
 
-function snapshot(source) {
+function snapshot(source, markup = signature(source)) {
   // Shallow nodes cannot retain entire detached markup trees through parentNode.
-  return { node: source.cloneNode(false), markup: signature(source) };
+  return { node: source.cloneNode(false), markup };
 }
 
 function remember(node, source) {
@@ -107,14 +113,15 @@ function updateAttributes(node, previous, next) {
 
 function updateNode(node, source, protectedNode) {
   const previous = sourceByNode.get(node);
-  if (previous.markup === signature(source)) return;
+  const markup = signature(source);
+  if (markup !== null && previous.markup === markup) return;
   if (node.nodeType === 1) {
     updateAttributes(node, previous.node, source);
     updateChildren(node, source, protectedNode);
   } else {
     node.textContent = source.textContent;
   }
-  sourceByNode.set(node, snapshot(source));
+  sourceByNode.set(node, snapshot(source, markup));
 }
 
 function updateChildren(parent, source, protectedNode) {

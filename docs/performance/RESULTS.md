@@ -52,6 +52,8 @@ In the original sample, the focused Continue Watching row appeared at 9.5 s. The
 
 Addon enabled-state reads during startup took 0.74 s of CPU because each check re-normalized the stored addon envelopes; with cached envelopes they took 0.05 s (one reload sample each, after the change in `addonRepository.js`).
 
+Home re-rendered about 70 times in the first 25 s after a reload, and half of that render time was `outerHTML` serialization in `homeDomUpdate.js`. On the TV's live Home markup (845 KB, 63 rows, 4,135 elements), one incremental update took 0.96–1.28 s before and 0.25–0.36 s after limiting signatures to rows and cards; a full mount took 1.26 s before and 0.67 s after. Both versions produced identical HTML for eight markup changes (unchanged, removed row, reordered rows, changed title, added card, changed image, wrapper class and attribute changes). One run; a repeat run reloaded the app because the test held many detached copies of Home.
+
 ## Player episode panel
 
 Measured on the same TV with CDP key events: open the panel, move six episodes down, press Enter on an uncached episode (199 streams from all sources), then move through the stream list. One sample per build. The baseline video was paused; the new build was measured while it played, and the viewer pressed some extra keys during that run.

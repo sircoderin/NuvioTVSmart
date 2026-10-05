@@ -50,6 +50,8 @@ Before the change, `routeAfterAuthentication` waited for `sync_pull_profile_lock
 
 In the original sample, the focused Continue Watching row appeared at 9.5 s. The later samples did not record that marker. After the change, the startup account sync (profiles, settings, collections, library, addons) finished about 6 s earlier. The remaining Home cost is CPU: catalog rows render and re-render for several seconds after the route opens.
 
+Addon enabled-state reads during startup took 0.74 s of CPU because each check re-normalized the stored addon envelopes; with cached envelopes they took 0.05 s (one reload sample each, after the change in `addonRepository.js`).
+
 ## Player episode panel
 
 Measured on the same TV with CDP key events: open the panel, move six episodes down, press Enter on an uncached episode (199 streams from all sources), then move through the stream list. One sample per build. The baseline video was paused; the new build was measured while it played, and the viewer pressed some extra keys during that run.

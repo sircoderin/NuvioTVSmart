@@ -41,6 +41,7 @@ class AddonRepository {
     this.changeListeners = new Set();
     this.manifestChangeListeners = new Set();
     this.addonChangeRevision = 0;
+    this.envelopeReadCache = new Map();
     this.restoreManifestCache();
   }
 
@@ -261,7 +262,24 @@ class AddonRepository {
     };
   }
 
+  copyProfileScopedEnvelope(envelope) {
+    return { ...envelope, profiles: { ...envelope.profiles } };
+  }
+
   readProfileScopedEnvelope(key, normalizeValue) {
+    // Normalizing every profile is costly on TVs, and Home reads these per
+    // addon. The result depends on the stored text and the profile list.
+    const storedText = LocalStore.getRaw(key);
+    const profilesText = LocalStore.getRaw(PROFILES_KEY);
+    const cached = this.envelopeReadCache.get(key);
+    if (
+      cached &&
+      storedText !== null &&
+      cached.storedText === storedText &&
+      cached.profilesText === profilesText
+    ) {
+      return this.copyProfileScopedEnvelope(cached.envelope);
+    }
     const raw = LocalStore.get(key, null);
     if (this.isProfileScopedEnvelope(raw)) {
       const next = {
@@ -281,11 +299,21 @@ class AddonRepository {
           return accumulator;
         }, {})
       };
+      let nextStoredText = storedText;
       if (JSON.stringify(next) !== JSON.stringify(raw)) {
         LocalStore.set(key, next);
+        nextStoredText = LocalStore.getRaw(key);
       }
-      return next;
+      if (nextStoredText !== null) {
+        this.envelopeReadCache.set(key, {
+          storedText: nextStoredText,
+          profilesText,
+          envelope: next
+        });
+      }
+      return this.copyProfileScopedEnvelope(next);
     }
+    this.envelopeReadCache.delete(key);
 
     const envelope = this.createProfileScopedEnvelope();
     if (raw != null) {
@@ -398,11 +426,9 @@ class AddonRepository {
     );
   }
 
-  isAddonEnabled(url) {
+  isAddonEnabled(url, enabledStates = this.getAddonEnabledStates()) {
     const cleanUrl = this.normalizeCinemetaUrl(this.canonicalizeUrl(url));
-    return cleanUrl
-      ? this.getAddonMapValue(this.getAddonEnabledStates(), cleanUrl) !== false
-      : false;
+    return cleanUrl ? this.getAddonMapValue(enabledStates, cleanUrl) !== false : false;
   }
 
   getAddonMapValue(map, url) {
@@ -579,9 +605,10 @@ class AddonRepository {
   getCachedInstalledAddons(urls = null, options = {}) {
     const includeDisabled = Boolean(options?.includeDisabled);
     const normalizedUrls = Array.isArray(urls) ? urls : this.getInstalledAddonUrls();
+    const enabledStates = includeDisabled ? null : this.getAddonEnabledStates();
     const selectedUrls = includeDisabled
       ? normalizedUrls
-      : normalizedUrls.filter((url) => this.isAddonEnabled(url));
+      : normalizedUrls.filter((url) => this.isAddonEnabled(url, enabledStates));
     const addons = selectedUrls
       .map((url) => this.manifestCache.get(this.canonicalizeUrl(url)))
       .filter(Boolean);
@@ -591,6 +618,7 @@ class AddonRepository {
   async refreshInstalledAddons(options = {}) {
     const includeDisabled = Boolean(options?.includeDisabled);
     const allUrls = this.getInstalledAddonUrls();
+    const enabledStates = this.getAddonEnabledStates();
     const requestedUrls = Array.isArray(options?.urls) ? options.urls : allUrls;
     const requestedUrlSet = new Set(
       requestedUrls.map((url) => this.canonicalizeUrl(url)).filter(Boolean)
@@ -599,7 +627,7 @@ class AddonRepository {
       .map((url) => this.canonicalizeUrl(url))
       .filter((url, index, values) => values.indexOf(url) === index)
       .filter((url) => requestedUrlSet.has(url))
-      .filter((url) => includeDisabled || this.isAddonEnabled(url));
+      .filter((url) => includeDisabled || this.isAddonEnabled(url, enabledStates));
     const timeoutMs = options?.timeoutMs;
     const refreshKey = JSON.stringify({
       profileId: this.getActiveStorageProfileId(),
@@ -647,7 +675,9 @@ class AddonRepository {
     const includeDisabled = Boolean(options?.includeDisabled);
     const allUrls = this.getInstalledAddonUrls();
     const enabledStates = this.getAddonEnabledStates();
-    const urls = includeDisabled ? allUrls : allUrls.filter((url) => this.isAddonEnabled(url));
+    const urls = includeDisabled
+      ? allUrls
+      : allUrls.filter((url) => this.isAddonEnabled(url, enabledStates));
     const cacheKey = JSON.stringify({
       profileId: this.getActiveStorageProfileId(),
       urls,
@@ -705,14 +735,17 @@ class AddonRepository {
         .map((result) => result.data);
 
       const displayAddons = this.applyDisplayNames(addons);
+      const currentEnabledStates = this.getAddonEnabledStates();
       if (
         JSON.stringify({
           profileId: this.getActiveStorageProfileId(),
           urls: includeDisabled
             ? this.getInstalledAddonUrls()
-            : this.getInstalledAddonUrls().filter((url) => this.isAddonEnabled(url)),
+            : this.getInstalledAddonUrls().filter((url) =>
+                this.isAddonEnabled(url, currentEnabledStates)
+              ),
           displayNames: this.getAddonDisplayNameOverrides(),
-          enabledStates: this.getAddonEnabledStates(),
+          enabledStates: currentEnabledStates,
           includeDisabled
         }) === cacheKey
       ) {

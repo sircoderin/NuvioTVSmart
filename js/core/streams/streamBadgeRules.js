@@ -276,12 +276,47 @@ function stableStringify(value) {
 }
 
 const compiledBadgeCache = new Map();
+const PREPARED_BADGE_RULES = Symbol("preparedBadgeRules");
+const MAX_COMPILED_RULES = 8;
+const MAX_MATCHES_PER_RULES = 256;
+
+// A concatenation of positive lookaheads beginning with .* asks whether
+// each condition exists somewhere in a line. Trying again at every character
+// cannot add a match, but makes misses quadratic. Recognize only this narrow
+// shape; consuming patterns and capturing groups keep their original regex.
+function isWholeLineLookaheadPattern(source) {
+  let position = 0;
+  while (position < source.length) {
+    if (!source.startsWith("(?=.*", position)) return false;
+    let depth = 1;
+    let inClass = false;
+    position += 5;
+    while (position < source.length && depth) {
+      const character = source[position++];
+      if (character === "\\") {
+        // Captures/backreferences can make the selected starting point matter.
+        if (/[1-9k]/.test(source[position] || "")) return false;
+        position++;
+      } else if (character === "[" && !inClass) inClass = true;
+      else if (character === "]" && inClass) inClass = false;
+      else if (!inClass && character === "(") {
+        if (!source.slice(position - 1).match(/^\(\?[=:!]/)) return false;
+        depth++;
+      } else if (!inClass && character === ")") depth--;
+    }
+    if (depth || inClass) return false;
+  }
+  return position > 0;
+}
 
 function compileStreamBadgeFilters(rules = {}) {
+  if (rules?.[PREPARED_BADGE_RULES]) return rules[PREPARED_BADGE_RULES];
   const normalized = normalizeStreamBadgeRules(rules);
   const fingerprint = stableStringify(normalized);
   const cached = compiledBadgeCache.get(fingerprint);
   if (cached) {
+    compiledBadgeCache.delete(fingerprint);
+    compiledBadgeCache.set(fingerprint, cached);
     return cached;
   }
 
@@ -321,7 +356,10 @@ function compileStreamBadgeFilters(rules = {}) {
                 textColor: filter.textColor,
                 borderColor: filter.borderColor
               },
-              regex: new RegExp(source, flags)
+              regex: new RegExp(source, flags),
+              lineRegex: isWholeLineLookaheadPattern(source)
+                ? new RegExp(`^(?:${source})`, flags)
+                : null
             };
           } catch {
             return null;
@@ -330,12 +368,34 @@ function compileStreamBadgeFilters(rules = {}) {
         .filter(Boolean)
     );
 
-  compiledBadgeCache.set(fingerprint, compiled);
-  return compiled;
+  const entry = { filters: compiled, matches: new Map() };
+  compiledBadgeCache.set(fingerprint, entry);
+  if (compiledBadgeCache.size > MAX_COMPILED_RULES) {
+    compiledBadgeCache.delete(compiledBadgeCache.keys().next().value);
+  }
+  return entry;
+}
+
+// Prepare one immutable presentation snapshot per batch/render. This avoids
+// normalizing and fingerprinting all imported filters for every stream card.
+export function prepareStreamBadgeRules(rules = {}) {
+  const normalized = normalizeStreamBadgeRules(rules);
+  Object.defineProperty(normalized, PREPARED_BADGE_RULES, {
+    value: compileStreamBadgeFilters(normalized)
+  });
+  normalized.imports.forEach((entry) => {
+    entry.filters.forEach(Object.freeze);
+    entry.groups.forEach(Object.freeze);
+    Object.freeze(entry.filters);
+    Object.freeze(entry.groups);
+    Object.freeze(entry);
+  });
+  Object.freeze(normalized.imports);
+  return Object.freeze(normalized);
 }
 
 export function matchStreamBadges(stream = {}, rules = {}) {
-  const filters = compileStreamBadgeFilters(rules);
+  const { filters, matches } = compileStreamBadgeFilters(rules);
   if (!filters.length) {
     return [];
   }
@@ -343,10 +403,24 @@ export function matchStreamBadges(stream = {}, rules = {}) {
   if (!candidates.length) {
     return [];
   }
+  const key = JSON.stringify(candidates);
+  const cached = matches.get(key);
+  if (cached) {
+    matches.delete(key);
+    matches.set(key, cached);
+    return cached.map((badge) => ({ ...badge }));
+  }
 
   const matched = new Map();
   filters.forEach((filter) => {
-    if (candidates.some((candidate) => filter.regex.test(candidate))) {
+    if (
+      candidates.some((candidate) =>
+        (filter.lineRegex && !/[\r\n\u2028\u2029]/.test(candidate)
+          ? filter.lineRegex
+          : filter.regex
+        ).test(candidate)
+      )
+    ) {
       const key = streamBadgeDedupeKey(filter.badge);
       if (!key || matched.has(key)) {
         return;
@@ -354,11 +428,14 @@ export function matchStreamBadges(stream = {}, rules = {}) {
       matched.set(key, filter.badge);
     }
   });
-  return Array.from(matched.values());
+  const result = Array.from(matched.values());
+  matches.set(key, result);
+  if (matches.size > MAX_MATCHES_PER_RULES) matches.delete(matches.keys().next().value);
+  return result.map((badge) => ({ ...badge }));
 }
 
 export function applyStreamBadgePresentation(groups = [], rules = {}) {
-  const normalizedRules = normalizeStreamBadgeRules(rules);
+  const normalizedRules = prepareStreamBadgeRules(rules);
   if (!normalizedRules.imports.length) {
     return groups;
   }

@@ -1,3 +1,4 @@
+import { ensureExpandedPosterMarkup } from "./expandedPosterMarkup.js";
 import * as internals from "./homeScreenContext.js";
 
 export function createHomeScreenMethods12() {
@@ -37,6 +38,7 @@ export function createHomeScreenMethods12() {
       if (!this.isModernPosterNode(node)) {
         return;
       }
+      ensureExpandedPosterMarkup(node);
       const hydrate = () => {
         const backdrop = node.querySelector(".home-poster-expanded-backdrop");
         if (backdrop?.tagName === "IMG") {

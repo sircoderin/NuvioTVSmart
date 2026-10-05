@@ -158,7 +158,6 @@ export function createPlayerScreenMethods68() {
     performControlAction(action) {
       if (action === "playPause") {
         this.togglePause();
-        this.renderControlButtons();
         return;
       }
 

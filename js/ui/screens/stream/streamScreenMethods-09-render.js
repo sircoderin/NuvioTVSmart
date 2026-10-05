@@ -23,13 +23,21 @@ export function createStreamScreenMethods09() {
       this.cancelScheduledRender();
       const previousVirtualModel = this.streamVirtualized ? this.streamVirtualModel : null;
       const previousFocusedIndex = Number(this.focusState?.row);
+      const previousRenderedStreams = this.renderedStreamListStreams || [];
+      const previousFocusedStreamIndex =
+        this.focusState?.zone === "card" && this.focusedElement?.dataset?.streamId
+          ? previousRenderedStreams.findIndex((stream) => String(stream.id) === String(this.focusedElement.dataset.streamId))
+          : -1;
       const previousFocusedKey =
+        this.focusState?.zone === "card" &&
         previousVirtualModel &&
         Number.isInteger(previousFocusedIndex) &&
         previousFocusedIndex >= 0 &&
         previousFocusedIndex < previousVirtualModel.keys.length
           ? previousVirtualModel.keys[previousFocusedIndex]
-          : "";
+          : previousFocusedStreamIndex >= 0
+            ? this.getStreamVirtualKeys(previousRenderedStreams)[previousFocusedStreamIndex]
+            : "";
       if (previousVirtualModel && !this.streamVirtualFocusReset && Number(this.listScrollTop || 0) > 0) {
         const previousAnchorIndex = findStreamVirtualIndex(previousVirtualModel.offsets, Number(this.listScrollTop || 0));
         this.streamVirtualPendingAnchor =
@@ -63,7 +71,7 @@ export function createStreamScreenMethods09() {
       // cards interactive while their images warm in the background; the card
       // renderer already has a text fallback for a missing logo.
       const virtualizedStreamList = Boolean(this.shouldUseStreamVirtualization(allStreams) && filtered.length);
-      if (virtualizedStreamList && previousFocusedKey && !this.streamVirtualFocusReset) {
+      if (previousFocusedKey && !this.streamVirtualFocusReset) {
         const nextKeys = this.getStreamVirtualKeys(filtered);
         const nextFocusedIndex = nextKeys.indexOf(previousFocusedKey);
         if (nextFocusedIndex >= 0) {

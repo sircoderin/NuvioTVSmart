@@ -23,6 +23,13 @@ export function createStreamScreenMethods10() {
       if (!selected) {
         return;
       }
+      // Once a source is chosen, late chunks and scheduled picker renders must
+      // stop competing with the playback handoff (including resume lookup).
+      const playResolveToken = Number(this.playResolveToken || 0) + 1;
+      this.playResolveToken = playResolveToken;
+      this.loadToken = Number(this.loadToken || 0) + 1;
+      this.streamLoadAbortController?.abort?.();
+      this.cancelScheduledRender();
       streamRepository.setLocalPluginSearchPaused(true);
       const playerStreamCandidates = this.getFilteredStreams();
       const itemType = normalizeType(this.params?.itemType);
@@ -56,6 +63,9 @@ export function createStreamScreenMethods10() {
         resumeDurationMs = Number(resumeProgress?.durationMs || 0) || resumeDurationMs;
       }
 
+      if (this.playResolveToken !== playResolveToken) {
+        return;
+      }
       Router.navigate("player", {
         streamUrl: selected.url || selected.externalUrl || null,
         itemId: this.params?.itemId || null,

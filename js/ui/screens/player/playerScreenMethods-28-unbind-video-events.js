@@ -129,23 +129,43 @@ export function createPlayerScreenMethods28() {
       }
       this.controlFocusIndex = clamp(this.controlFocusIndex, 0, Math.max(0, controls.length - 1));
 
-      wrap.innerHTML = controls
-        .map(
-          (control) => `
+      const renderContent = (control) =>
+        control.icon
+          ? control.primary || control.useMask
+            ? `<span class="player-control-icon player-control-icon-mask" style="-webkit-mask-image:url('${escapeHtml(control.icon)}');mask-image:url('${escapeHtml(control.icon)}');" aria-hidden="true"></span>`
+            : `<img class="player-control-icon" src="${escapeHtml(control.icon)}" alt="" aria-hidden="true" />`
+          : `<span class="player-control-label">${escapeHtml(control.label || "")}</span>`;
+      const existingButtons = Array.from(wrap.querySelectorAll(".player-control-btn"));
+      const canReuseButtons =
+        existingButtons.length === controls.length &&
+        existingButtons.every((button, index) => button.dataset.action === String(controls[index].action));
+      if (!canReuseButtons) {
+        wrap.innerHTML = controls
+          .map(
+            (control) => `
           <button class="player-control-btn focusable${control.primary ? " is-primary" : ""}"
-                  data-action="${control.action}"
+                  data-action="${escapeHtml(control.action)}"
                   title="${escapeHtml(control.title || "")}">
-            ${
-              control.icon
-                ? control.primary || control.useMask
-                  ? `<span class="player-control-icon player-control-icon-mask" style="-webkit-mask-image:url('${escapeHtml(control.icon)}');mask-image:url('${escapeHtml(control.icon)}');" aria-hidden="true"></span>`
-                  : `<img class="player-control-icon" src="${control.icon}" alt="" aria-hidden="true" />`
-                : `<span class="player-control-label">${escapeHtml(control.label || "")}</span>`
-            }
-          </button>
-        `
-        )
-        .join("");
+            ${renderContent(control)}
+          </button>`
+          )
+          .join("");
+      } else if (this.renderedControlSignature !== controlRenderSignature) {
+        // Playback events may render again before the next frame. Retain the
+        // focused buttons and update only content that actually changed.
+        existingButtons.forEach((button, index) => {
+          const control = controls[index];
+          const content = renderContent(control);
+          if (button.dataset.contentSignature !== content) {
+            button.innerHTML = content;
+          }
+          button.title = control.title || "";
+          button.classList.toggle("is-primary", Boolean(control.primary));
+        });
+      }
+      Array.from(wrap.querySelectorAll(".player-control-btn")).forEach((button, index) => {
+        button.dataset.contentSignature = renderContent(controls[index]);
+      });
       this.renderedControlSignature = controlRenderSignature;
 
       const buttons = Array.from(wrap.querySelectorAll(".player-control-btn"));

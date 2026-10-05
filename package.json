@@ -24,7 +24,9 @@
     "serve": "node ./scripts/serve.mjs",
     "sync": "node ./scripts/sync-wrapper.mjs",
     "sync:tizen": "node ./scripts/sync-wrapper.mjs --tizen",
-    "sync:webos": "node ./scripts/sync-wrapper.mjs --webos"
+    "sync:webos": "node ./scripts/sync-wrapper.mjs --webos",
+    "test:unit": "node ./scripts/test-unit.mjs",
+    "perf:tv": "node ./scripts/tv-performance.mjs"
   },
   "devDependencies": {
     "@csstools/postcss-global-data": "^4.0.0",

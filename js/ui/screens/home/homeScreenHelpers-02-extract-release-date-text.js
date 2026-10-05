@@ -310,6 +310,10 @@ export function preloadHeroAssets(hero, layoutMode = "modern") {
 }
 
 export function prepareHeroImageEnter(image, enterClass) {
+  if (getTvRuntimePerformanceProfile().isPerformanceConstrained) {
+    image.classList.add(enterClass);
+    return;
+  }
   // A reused image is already opaque. Without an immediate reset, changing src
   // flashes the new artwork while CSS starts fading from 1 towards 0; the next
   // animation frame then reverses that fade instead of entering from 0.

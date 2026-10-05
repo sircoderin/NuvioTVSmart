@@ -3,10 +3,12 @@ import { TizenCapabilities } from "./tizen/tizenCapabilities.js";
 
 // The first common TV generation with a modern Chromium baseline is Samsung
 // Tizen 6.5 / Chromium M85 (2022) and LG webOS TV 22 / Chromium M87 (2022).
-// Keep this policy tied to the runtime generation, not the vendor name.
+// Browser API support and rendering capacity are separate: webOS 2022/2023
+// supports modern APIs but still stalls on animated player overlays.
 export const TV_RUNTIME_PERFORMANCE_THRESHOLDS = Object.freeze({
   modernTvYear: 2022,
-  modernChromiumMajor: 85
+  modernChromiumMajor: 85,
+  constrainedWebOsThroughYear: 2023
 });
 
 const WEBOS_RELEASE_YEARS = Object.freeze({
@@ -159,7 +161,11 @@ export function getTvRuntimePerformanceProfile({ forceRefresh = false } = {}) {
     tvYearKnown,
     chromiumVersionKnown,
     isLegacyTvRuntime,
-    isPerformanceConstrained: isLegacyTvRuntime
+    isPerformanceConstrained:
+      isLegacyTvRuntime ||
+      (isWebOS &&
+        tvYearKnown &&
+        tvYear <= TV_RUNTIME_PERFORMANCE_THRESHOLDS.constrainedWebOsThroughYear)
   });
   return cachedProfile;
 }

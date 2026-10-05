@@ -349,6 +349,11 @@ export function createPosterCardMarkup(
             ? `<img class="content-poster" ${buildLazyImageAttributes(posterSrc, { defer: deferImages })} alt="${escapeAttribute(normalized.name || "content")}" />`
             : '<div class="content-poster placeholder"></div>'
         }
+        ${watchedBadge}
+        ${
+          getTvRuntimePerformanceProfile().isPerformanceConstrained
+            ? ""
+            : `
         ${
           !isLoading && expandedVisualSrc
             ? `<img class="home-poster-expanded-backdrop" data-src="${escapeAttribute(expandedVisualSrc)}" decoding="async" loading="lazy" alt="" aria-hidden="true" />`
@@ -356,7 +361,6 @@ export function createPosterCardMarkup(
         }
         <div class="home-poster-trailer-layer"></div>
         <div class="home-poster-expanded-gradient"></div>
-        ${watchedBadge}
         <div class="home-poster-expanded-brand">
           ${
             !isLoading && normalized.logo
@@ -364,6 +368,8 @@ export function createPosterCardMarkup(
               : `<div class="home-poster-expanded-title" dir="auto">${escapeHtml(normalized.name || "Untitled")}</div>`
           }
         </div>
+        `
+        }
         ${
           !isLoading && useLandscapePoster && !suppressPosterText
             ? `

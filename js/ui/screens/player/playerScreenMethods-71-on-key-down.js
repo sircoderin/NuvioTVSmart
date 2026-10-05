@@ -76,7 +76,6 @@ export function createPlayerScreenMethods71() {
         if (mediaAction === "play" || mediaAction === "toggle" || isSelectKeyCode(keyCode)) {
           this.dismissPauseOverlay();
           this.togglePause();
-          this.renderControlButtons();
           return;
         }
         this.dismissPauseOverlay({ revealControls: true, focus: false });
@@ -171,7 +170,6 @@ export function createPlayerScreenMethods71() {
 
       if (keyCode === 80) {
         this.togglePause();
-        this.renderControlButtons();
         return;
       }
 
@@ -273,7 +271,6 @@ export function createPlayerScreenMethods71() {
             this.cancelSeekPreview({ commit: false });
           }
           this.togglePause({ focusControls: true });
-          this.renderControlButtons();
         }
         return;
       }
@@ -323,7 +320,6 @@ export function createPlayerScreenMethods71() {
           this.autoHideControlsAfterSeek = false;
           this.togglePause();
           this.focusProgressBar();
-          this.renderControlButtons();
           return;
         }
       }

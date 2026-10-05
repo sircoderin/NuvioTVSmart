@@ -1,0 +1,48 @@
+/* On constrained TVs, even opacity/color transitions across player overlays
+   can block input for seconds. Keep the settled UI and immediate focus feedback. */
+.performance-constrained *,
+.performance-constrained *::before,
+.performance-constrained *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* Earlier poster rules deliberately retain an opacity transition. Override
+   those too when the runtime has selected the measured low-motion path. */
+.performance-constrained .home-screen-shell.home-layout-modern .home-poster-card .content-poster,
+.performance-constrained
+  .home-screen-shell.home-layout-modern
+  .home-poster-card
+  .home-poster-expanded-backdrop {
+  transition: none !important;
+}
+
+/* Some components use keyframes to reveal their content. Set their final
+   state explicitly so disabling motion never hides a menu or status message. */
+.performance-constrained .player-loading-identity,
+.performance-constrained .nuvio-loading-indicator-spoke,
+.performance-constrained .stream-route-skeleton-line {
+  animation: none !important;
+  opacity: 1;
+}
+
+.performance-constrained .player-parental-guide,
+.performance-constrained .player-parental-item,
+.performance-constrained .stream-route-panel-shell,
+.performance-constrained .library-picker-menu.library-picker-menu-open,
+.performance-constrained .profile-pin-layer.is-opening {
+  opacity: 1;
+  transform: none;
+}
+
+.performance-constrained .player-parental-guide.is-exiting,
+.performance-constrained .library-picker-menu.library-picker-menu-closing,
+.performance-constrained .profile-pin-layer.is-closing,
+.performance-constrained .profile-screen.is-pin-opening .profile-main-layer {
+  opacity: 0;
+}
+
+.performance-constrained .profile-screen.is-pin-closing .profile-main-layer {
+  transform: none;
+}

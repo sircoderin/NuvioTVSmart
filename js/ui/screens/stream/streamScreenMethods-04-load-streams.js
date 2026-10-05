@@ -19,7 +19,6 @@ export function createStreamScreenMethods04() {
     flattenStreams,
     mergeStreamItems,
     ensureAddonLogoImageProxyReady,
-    preloadMatchedStreamBadgeImages,
     sortStreamsByAddonOrder
   } = internals;
 
@@ -54,10 +53,9 @@ export function createStreamScreenMethods04() {
       const badgeSettings = StreamBadgeSettingsStore.snapshot();
       const showAddonLogo = badgeSettings.showAddonLogo === true;
       if (showAddonLogo) {
-        await ensureAddonLogoImageProxyReady();
-        if (token !== this.loadToken) {
-          return;
-        }
+        void ensureAddonLogoImageProxyReady().catch((error) => {
+          console.warn("Stream image proxy warmup failed", error);
+        });
       }
 
       const upsertSourceChip = (addon, status = "loading") => {
@@ -158,10 +156,7 @@ export function createStreamScreenMethods04() {
         // Android publishes the completed source group before badge/logo work.
         // Keep those image warmups off the critical path so a slow image or
         // proxy cannot delay the first usable stream card on Tizen.
-        void Promise.all([
-          preloadMatchedStreamBadgeImages(chunkStreams, badgeSettings),
-          ...(showAddonLogo ? [preloadAddonLogoImages(chunkStreams, this.addonLogoLookup)] : [])
-        ]).catch((error) => {
+        void Promise.all([...(showAddonLogo ? [preloadAddonLogoImages(chunkStreams, this.addonLogoLookup)] : [])]).catch((error) => {
           console.warn("Stream badge/logo warmup failed", error);
         });
         this.streams = mergeStreamItems(this.streams, chunkStreams);
@@ -174,10 +169,10 @@ export function createStreamScreenMethods04() {
         );
         this.streams = sortStreamsByAddonOrder(this.streams, this.sourceChips);
         this.scheduleDebridPreparation();
-        if (this.streams.length && this.focusState?.zone !== "card") {
+        const firstVisibleChunk = this.loading;
+        if (firstVisibleChunk && this.streams.length && this.focusState?.zone !== "card") {
           this.focusState = { zone: "card", row: 0, action: "play" };
         }
-        const firstVisibleChunk = this.loading;
         if (firstVisibleChunk) {
           // Android's stream state leaves the loading phase as soon as the first
           // successful source arrives. The producer continues below in the
@@ -242,10 +237,7 @@ export function createStreamScreenMethods04() {
           return key && !existingKeys.has(key);
         });
         if (missingStreams.length) {
-          void Promise.all([
-            preloadMatchedStreamBadgeImages(missingStreams, badgeSettings),
-            ...(showAddonLogo ? [preloadAddonLogoImages(missingStreams, this.addonLogoLookup)] : [])
-          ]).catch((error) => {
+          void Promise.all([...(showAddonLogo ? [preloadAddonLogoImages(missingStreams, this.addonLogoLookup)] : [])]).catch((error) => {
             console.warn("Stream badge/logo warmup failed", error);
           });
           this.streams = mergeStreamItems(this.streams, missingStreams);
@@ -261,10 +253,10 @@ export function createStreamScreenMethods04() {
         this.streamSearchCompleted = true;
         this.sourceChips = this.sourceChips.map((chip) => (chip.status === "loading" ? { ...chip, status: "error" } : chip));
         this.loading = false;
-        if (this.streams.length) {
+        if (this.streams.length && this.focusState?.zone === "card") {
           const visibleStreams = this.getFilteredStreams();
           const maxCardIndex = Math.max(0, visibleStreams.length - 1);
-          let initialIndex = clamp(Number(this.focusState?.index || 0), 0, maxCardIndex);
+          let initialIndex = clamp(Number(this.focusState?.row ?? this.focusState?.index ?? 0), 0, maxCardIndex);
           const preferred = String(this.params?.preferredStreamId || "").trim();
           if (preferred) {
             const prefIdx = visibleStreams.findIndex((s) => String(s?.id || "") === preferred);
@@ -279,7 +271,7 @@ export function createStreamScreenMethods04() {
             row: rowIndex,
             action: String(this.focusState?.action || "play")
           };
-        } else {
+        } else if (!this.streams.length) {
           this.focusState = { zone: "filter", index: 0 };
         }
         this.requestRender();

@@ -1,3 +1,4 @@
+import { getTvRuntimePerformanceProfile } from "../../../platform/tvRuntimePerformance.js";
 /* eslint-disable no-unused-vars */
 import * as internals from "./streamScreen.js";
 
@@ -72,10 +73,10 @@ export function createStreamScreenMethods01() {
       this.streamVirtualPendingAnchor = null;
     },
     shouldUseStreamVirtualization(streams = []) {
-      // Keep ordinary-sized Tizen lists on the stable eager path. The Android
-      // LazyColumn equivalent is still used for genuinely long lists, where a
-      // full DOM would make every D-pad layout pass scale with result count.
-      return Array.isArray(streams) && streams.length > STREAM_VIRTUALIZATION_THRESHOLD;
+      // Constrained TVs need a bounded DOM even before a list reaches 100
+      // streams: rebuilding every card as sources arrive can starve input.
+      const threshold = getTvRuntimePerformanceProfile().isPerformanceConstrained ? 20 : STREAM_VIRTUALIZATION_THRESHOLD;
+      return Array.isArray(streams) && streams.length > threshold;
     },
     getStreamVirtualKeys(streams = []) {
       if (this.streamVirtualKeyCache?.streams === streams) {
@@ -154,7 +155,7 @@ export function createStreamScreenMethods01() {
         scrollTop: Number(this.listScrollTop || 0),
         viewportHeight: this.getStreamVirtualViewportHeight(listNode),
         overscanPx: STREAM_VIRTUALIZATION_OVERSCAN_PX,
-        minWindow: STREAM_VIRTUALIZATION_MIN_WINDOW,
+        minWindow: getTvRuntimePerformanceProfile().isPerformanceConstrained ? 8 : STREAM_VIRTUALIZATION_MIN_WINDOW,
         preferredIndex
       });
       this.streamVirtualWindow = virtualWindow;
@@ -266,7 +267,7 @@ export function createStreamScreenMethods01() {
         scrollTop: previousScrollTop,
         viewportHeight: this.getStreamVirtualViewportHeight(list),
         overscanPx: STREAM_VIRTUALIZATION_OVERSCAN_PX,
-        minWindow: STREAM_VIRTUALIZATION_MIN_WINDOW,
+        minWindow: getTvRuntimePerformanceProfile().isPerformanceConstrained ? 8 : STREAM_VIRTUALIZATION_MIN_WINDOW,
         preferredIndex
       });
       const previousWindow = this.streamVirtualWindow;
@@ -282,20 +283,15 @@ export function createStreamScreenMethods01() {
 
       const focused = this.focusedElement;
       const restoreFocusedAction = focused && list.contains(focused) ? String(focused.dataset?.cardAction || "play") : "";
+      const badgeSettings = StreamBadgeSettingsStore.snapshot();
       windowNode.innerHTML = Array.from({ length: Math.max(0, virtualWindow.end - virtualWindow.start + 1) }, (_, offset) => {
         const index = virtualWindow.start + offset;
-        return this.renderStreamCard(
-          streams[index],
-          index,
-          DebridSettingsStore.get().streamBadgesEnabled !== false,
-          StreamBadgeSettingsStore.snapshot(),
-          {
-            streamKey: model.keys[index],
-            virtualized: true,
-            virtualRowGap: model.rowGap,
-            virtualLast: index === streams.length - 1
-          }
-        );
+        return this.renderStreamCard(streams[index], index, DebridSettingsStore.get().streamBadgesEnabled !== false, badgeSettings, {
+          streamKey: model.keys[index],
+          virtualized: true,
+          virtualRowGap: model.rowGap,
+          virtualLast: index === streams.length - 1
+        });
       }).join("");
       const topSpacer = track.querySelector('[data-stream-virtual-spacer="top"]');
       const bottomSpacer = track.querySelector('[data-stream-virtual-spacer="bottom"]');

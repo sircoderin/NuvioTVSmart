@@ -165,6 +165,10 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.episodePanelStreamFocus = { zone: "actions", index: 0 };
   this.episodePanelStreamVideoId = "";
   this.episodePanelStreamLoadToken = 0;
+  this.episodePanelStreamRenderLimit = 0;
+  this.episodePanelStreamFocusUserMoved = false;
+  this.episodePanelRenderTimer = null;
+  this.renderedEpisodePanelMarkup = null;
   this.episodePanelExitTimer = null;
   this.switchingEpisode = false;
 

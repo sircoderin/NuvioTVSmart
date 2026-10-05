@@ -262,6 +262,8 @@ export const SOURCE_NAVIGATION_REPEAT_THROTTLE_MS = 112;
 
 export const EPISODE_PANEL_TRANSITION_MS = 220;
 
+export const EPISODE_STREAM_RENDER_BATCH = 10;
+
 export const activeEngineFsPlaybackClaims = new Map();
 
 export const deferredEngineFsRemovalTimers = new Map();

@@ -100,6 +100,9 @@ export function createPlayerScreenMethods73() {
         }
         this.cancelScheduledSourcesPanelRender();
         this.renderedSourcesMarkup = null;
+        clearTimeout(this.episodePanelRenderTimer);
+        this.episodePanelRenderTimer = null;
+        this.renderedEpisodePanelMarkup = null;
         this.clearTrackDiscoveryTimer();
         this.stopLoadingLogoFillAnimation();
         this.resetPlaybackEngineValidation();

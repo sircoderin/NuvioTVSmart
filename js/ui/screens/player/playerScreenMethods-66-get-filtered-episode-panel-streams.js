@@ -2,7 +2,7 @@
 import * as internals from "./playerScreenContext.js";
 
 export function createPlayerScreenMethods66() {
-  const { streamRepository, isSelectKeyCode, t, clamp, normalizeItemType } = internals;
+  const { streamRepository, EPISODE_STREAM_RENDER_BATCH, isSelectKeyCode, t, clamp, normalizeItemType } = internals;
 
   return {
     getFilteredEpisodePanelStreams() {
@@ -20,7 +20,7 @@ export function createPlayerScreenMethods66() {
       this.episodePanelFocusZone = "episodes";
       this.renderEpisodePanel();
     },
-    async openEpisodeStreamsView({ forceReload = true } = {}) {
+    async openEpisodeStreamsView({ forceReload = false } = {}) {
       streamRepository.setLocalPluginSearchPaused(false);
       const selected = this.episodes[this.episodePanelIndex] || null;
       if (!selected?.id) {
@@ -30,6 +30,9 @@ export function createPlayerScreenMethods66() {
       this.episodePanelStreamVideoId = String(selected.id);
       this.episodePanelStreamFilter = "all";
       this.episodePanelStreamFocus = { zone: "actions", index: 0 };
+      this.episodePanelStreamFocusUserMoved = false;
+      this.episodePanelStreamRenderLimit = 0;
+      this.episodePanelStreams = [];
       this.episodePanelStreamsError = "";
       this.episodePanelStreamsLoading = true;
       this.renderEpisodePanel();
@@ -41,23 +44,28 @@ export function createPlayerScreenMethods66() {
       }
       const token = Number(this.episodePanelStreamLoadToken || 0) + 1;
       this.episodePanelStreamLoadToken = token;
+      const isCurrentLoad = () =>
+        token === this.episodePanelStreamLoadToken &&
+        this.episodePanelVisible &&
+        this.episodePanelMode === "streams" &&
+        String(this.episodePanelStreamVideoId || "") === String(selected.id);
       try {
         const streams = await this.getPlayableStreamsForVideo(selected.id, itemType, {
           season: selected.season,
           episode: selected.episode,
-          forceRefresh: forceReload
+          forceRefresh: forceReload,
+          onChunk: (partialStreams) => {
+            if (isCurrentLoad()) {
+              this.applyEpisodePanelStreams(partialStreams);
+              this.scheduleEpisodePanelRender();
+            }
+          }
         });
-        if (
-          token !== this.episodePanelStreamLoadToken ||
-          !this.episodePanelVisible ||
-          this.episodePanelMode !== "streams" ||
-          String(this.episodePanelStreamVideoId || "") !== String(selected.id)
-        ) {
+        if (!isCurrentLoad()) {
           return;
         }
-        this.episodePanelStreams = streams;
         this.episodePanelStreamsLoading = false;
-        this.episodePanelStreamFocus = streams.length ? { zone: "streams", index: 0 } : { zone: "actions", index: 0 };
+        this.applyEpisodePanelStreams(streams);
       } catch (_error) {
         if (token !== this.episodePanelStreamLoadToken) {
           return;
@@ -68,6 +76,40 @@ export function createPlayerScreenMethods66() {
         this.episodePanelStreamFocus = { zone: "actions", index: 0 };
       }
       this.renderEpisodePanel();
+    },
+    applyEpisodePanelStreams(streams = []) {
+      const streamKey = (stream) => String(stream?.id || stream?.url || "");
+      const focus = this.episodePanelStreamFocus || { zone: "actions", index: 0 };
+      const focusedStream = focus.zone === "streams" ? this.getFilteredEpisodePanelStreams()[focus.index] : null;
+      const focusedFilter = focus.zone === "filters" ? this.getEpisodePanelStreamFilters()[focus.index] : null;
+      this.episodePanelStreams = streams;
+      const filters = this.getEpisodePanelStreamFilters();
+      if (!filters.includes(this.episodePanelStreamFilter)) {
+        this.episodePanelStreamFilter = "all";
+      }
+      const filtered = this.getFilteredEpisodePanelStreams();
+      if (!this.episodePanelStreamFocusUserMoved) {
+        this.episodePanelStreamFocus = filtered.length ? { zone: "streams", index: 0 } : { zone: "actions", index: 0 };
+      } else if (focusedStream) {
+        const index = filtered.findIndex((stream) => streamKey(stream) === streamKey(focusedStream));
+        this.episodePanelStreamFocus = { zone: "streams", index: Math.max(0, index) };
+      } else if (focusedFilter) {
+        this.episodePanelStreamFocus = { zone: "filters", index: Math.max(0, filters.indexOf(focusedFilter)) };
+      }
+    },
+    scheduleEpisodePanelRender() {
+      if (this.episodePanelRenderTimer) {
+        return;
+      }
+      this.episodePanelRenderTimer = setTimeout(() => {
+        this.episodePanelRenderTimer = null;
+        if (this.episodePanelVisible) {
+          this.renderEpisodePanel();
+        }
+      }, 0);
+    },
+    hasEpisodeStreamFilterRow() {
+      return this.getEpisodePanelStreamFilters().length > 1;
     },
     moveEpisodeStreamFocus(direction) {
       const filters = this.getEpisodePanelStreamFilters();
@@ -90,7 +132,7 @@ export function createPlayerScreenMethods66() {
         } else if (direction === "up") {
           this.episodePanelStreamFocus = { zone: "close", index: 0 };
         } else if (direction === "down") {
-          this.episodePanelStreamFocus = filters.length
+          this.episodePanelStreamFocus = this.hasEpisodeStreamFilterRow()
             ? {
                 zone: "filters",
                 index: clamp(filters.indexOf(this.episodePanelStreamFilter), 0, filters.length - 1)
@@ -114,13 +156,16 @@ export function createPlayerScreenMethods66() {
       }
       if (focus.zone === "streams") {
         if (direction === "up") {
-          this.episodePanelStreamFocus =
-            index > 0
-              ? { zone: "streams", index: index - 1 }
-              : {
-                  zone: "filters",
-                  index: clamp(filters.indexOf(this.episodePanelStreamFilter), 0, Math.max(0, filters.length - 1))
-                };
+          if (index > 0) {
+            this.episodePanelStreamFocus = { zone: "streams", index: index - 1 };
+          } else if (this.hasEpisodeStreamFilterRow()) {
+            this.episodePanelStreamFocus = {
+              zone: "filters",
+              index: clamp(filters.indexOf(this.episodePanelStreamFilter), 0, Math.max(0, filters.length - 1))
+            };
+          } else {
+            this.episodePanelStreamFocus = { zone: "actions", index: 0 };
+          }
         } else if (direction === "down") {
           this.episodePanelStreamFocus = {
             zone: "streams",
@@ -146,6 +191,7 @@ export function createPlayerScreenMethods66() {
       if (focus.zone === "filters") {
         const filters = this.getEpisodePanelStreamFilters();
         this.episodePanelStreamFilter = filters[clamp(Number(focus.index || 0), 0, Math.max(0, filters.length - 1))] || "all";
+        this.episodePanelStreamRenderLimit = 0;
         this.episodePanelStreamFocus = {
           zone: "filters",
           index: Math.max(0, filters.indexOf(this.episodePanelStreamFilter))
@@ -173,6 +219,9 @@ export function createPlayerScreenMethods66() {
       event?.stopImmediatePropagation?.();
 
       if (this.episodePanelMode === "streams") {
+        if (!isSelectKeyCode(keyCode)) {
+          this.episodePanelStreamFocusUserMoved = true;
+        }
         if (keyCode === 37) {
           this.moveEpisodeStreamFocus("left");
         } else if (keyCode === 38) {
@@ -185,7 +234,7 @@ export function createPlayerScreenMethods66() {
           void this.activateEpisodeStreamFocus();
           return true;
         }
-        this.renderEpisodePanel();
+        this.syncEpisodePanelFocusDom();
         return true;
       }
 
@@ -203,13 +252,13 @@ export function createPlayerScreenMethods66() {
             this.moveEpisodePanel(-1);
           } else {
             this.episodePanelFocusZone = hasSeasonTabs ? "seasons" : "close";
-            this.renderEpisodePanel();
+            this.syncEpisodePanelFocusDom();
           }
           return true;
         }
         if (this.episodePanelFocusZone === "seasons") {
           this.episodePanelFocusZone = "close";
-          this.renderEpisodePanel();
+          this.syncEpisodePanelFocusDom();
           return true;
         }
         return true;
@@ -218,12 +267,12 @@ export function createPlayerScreenMethods66() {
       if (keyCode === 40) {
         if (this.episodePanelFocusZone === "close") {
           this.episodePanelFocusZone = hasSeasonTabs ? "seasons" : "episodes";
-          this.renderEpisodePanel();
+          this.syncEpisodePanelFocusDom();
           return true;
         }
         if (this.episodePanelFocusZone === "seasons") {
           this.episodePanelFocusZone = "episodes";
-          this.renderEpisodePanel();
+          this.syncEpisodePanelFocusDom();
           return true;
         }
         this.moveEpisodePanel(1);
@@ -244,7 +293,7 @@ export function createPlayerScreenMethods66() {
         }
         if (this.episodePanelFocusZone === "seasons") {
           this.episodePanelFocusZone = "episodes";
-          this.renderEpisodePanel();
+          this.syncEpisodePanelFocusDom();
           return true;
         }
         this.playEpisodeFromPanel();
@@ -252,6 +301,59 @@ export function createPlayerScreenMethods66() {
       }
 
       return true;
+    },
+    getEpisodePanelFocusNode(panel) {
+      if (this.episodePanelMode !== "streams") {
+        const zone = this.episodePanelFocusZone || "episodes";
+        if (zone === "close") {
+          return panel.querySelector("[data-episode-action='close']");
+        }
+        if (zone === "seasons") {
+          return panel.querySelector(".player-episode-season-tab.selected");
+        }
+        return panel.querySelector(`[data-episode-index="${Number(this.episodePanelIndex)}"]`);
+      }
+      const focus = this.episodePanelStreamFocus || { zone: "actions", index: 0 };
+      const index = Number(focus.index || 0);
+      if (focus.zone === "close") {
+        return panel.querySelector("[data-episode-action='close']");
+      }
+      if (focus.zone === "actions") {
+        return panel.querySelectorAll("[data-episode-stream-action]")[index] || null;
+      }
+      if (focus.zone === "filters") {
+        return panel.querySelector(`[data-episode-stream-filter-index="${index}"]`);
+      }
+      if (index >= Number(this.episodePanelStreamRenderLimit || 0) - Math.ceil(EPISODE_STREAM_RENDER_BATCH / 2)) {
+        this.appendEpisodeStreamCards(index + 1);
+      }
+      return panel.querySelector(`[data-episode-stream-index="${index}"]`);
+    },
+    syncEpisodePanelFocusDom() {
+      const panel = this.uiRefs?.root?.querySelector("#episodeSidePanel");
+      const mode = this.episodePanelMode === "streams" ? "streams" : "episodes";
+      const focusedNode =
+        panel && !panel.classList.contains("is-exiting") && panel.dataset.episodePanelMode === mode
+          ? this.getEpisodePanelFocusNode(panel)
+          : null;
+      if (!focusedNode) {
+        this.renderEpisodePanel();
+        return;
+      }
+      this.renderedEpisodePanelMarkup = null;
+      panel.querySelectorAll(".focused").forEach((node) => {
+        if (node !== focusedNode) {
+          node.classList.remove("focused");
+        }
+      });
+      focusedNode.classList.add("focused");
+      if (mode === "episodes") {
+        panel.querySelectorAll(".player-episode-item.selected").forEach((node) => {
+          node.classList.toggle("selected", node.dataset.episodeIndex === String(this.episodePanelIndex));
+        });
+        panel.querySelector(`[data-episode-index="${Number(this.episodePanelIndex)}"]`)?.classList.add("selected");
+      }
+      this.scrollEpisodePanelIntoView();
     },
     scrollEpisodePanelIntoView() {
       const panel = this.uiRefs?.root?.querySelector("#episodeSidePanel");

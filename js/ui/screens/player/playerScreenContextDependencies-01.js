@@ -262,6 +262,8 @@ import { SOURCE_NAVIGATION_REPEAT_THROTTLE_MS } from "./playerScreenHelpers-01-c
 
 import { EPISODE_PANEL_TRANSITION_MS } from "./playerScreenHelpers-01-clock-formatter-cache.js";
 
+import { EPISODE_STREAM_RENDER_BATCH } from "./playerScreenHelpers-01-clock-formatter-cache.js";
+
 import { activeEngineFsPlaybackClaims } from "./playerScreenHelpers-01-clock-formatter-cache.js";
 
 import { deferredEngineFsRemovalTimers } from "./playerScreenHelpers-01-clock-formatter-cache.js";
@@ -496,6 +498,7 @@ export {
   POST_VALIDATION_SAME_ENGINE_RECOVERY_MAX_ATTEMPTS,
   SOURCE_NAVIGATION_REPEAT_THROTTLE_MS,
   EPISODE_PANEL_TRANSITION_MS,
+  EPISODE_STREAM_RENDER_BATCH,
   activeEngineFsPlaybackClaims,
   deferredEngineFsRemovalTimers,
   isBackEvent,

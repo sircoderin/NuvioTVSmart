@@ -54,6 +54,8 @@ export function createPlayerScreenMethods24() {
       this.episodePanelStreamsError = error ? t("panel_failed_load_streams", {}, "Failed to load streams") : "";
       this.episodePanelStreamsLoading = !Array.isArray(streamItems);
       this.episodePanelStreams = Array.isArray(streamItems) ? streamItems : [];
+      this.episodePanelStreamRenderLimit = 0;
+      this.episodePanelStreamFocusUserMoved = false;
       this.episodePanelStreamFocus = this.episodePanelStreams.length ? { zone: "streams", index: 0 } : { zone: "actions", index: 0 };
       this.subtitleDialogVisible = false;
       this.audioDialogVisible = false;

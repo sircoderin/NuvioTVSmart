@@ -10,6 +10,7 @@ export function createPlayerScreenMethods67() {
     contentTextDirection,
     ENGINEFS_NAVIGATION_CLEANUP_GRACE_MS,
     EPISODE_PANEL_TRANSITION_MS,
+    EPISODE_STREAM_RENDER_BATCH,
     t,
     escapeHtml,
     escapeAttribute,
@@ -23,16 +24,88 @@ export function createPlayerScreenMethods67() {
   } = internals;
 
   return {
+    getEpisodeStreamCardContext() {
+      const badgeSettings = StreamBadgeSettingsStore.snapshot();
+      return {
+        badgeSettings,
+        showAddonLogo: badgeSettings.showAddonLogo === true,
+        badgePlacement: resolvePlayerSourceBadgePlacement(badgeSettings),
+        focus: this.episodePanelStreamFocus || { zone: "actions", index: 0 }
+      };
+    },
+    renderEpisodeStreamCard(stream, index, context) {
+      const { badgeSettings, showAddonLogo, badgePlacement, focus } = context;
+      const focused = focus.zone === "streams" && focus.index === index;
+      const badges = renderPlayerSourceBadges(stream, badgeSettings);
+      const topBadges = badgePlacement === "TOP" ? badges : "";
+      const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
+      const addonLogoUrl = showAddonLogo ? getPlayerSourceLogoDisplayUrl(stream.addonLogo, () => this.scheduleSourceLogoRender()) : "";
+      const sourceLabel = stream.label || "Stream";
+      const sourceDescription = stream.description || stream.addonName || "";
+      const sourceAddonName = stream.addonName || t("nav_addons", {}, "Addon");
+      const sourceSide = showAddonLogo
+        ? `<div class="player-source-side">
+            ${addonLogoUrl ? `<img class="player-source-logo" src="${escapeAttribute(addonLogoUrl)}" alt="" decoding="async" loading="lazy" referrerpolicy="no-referrer" />` : ""}
+            <div class="player-source-addon" dir="${contentTextDirection(sourceAddonName)}">${escapeHtml(sourceAddonName)}</div>
+          </div>`
+        : "";
+      return `
+        <article class="player-source-card player-episode-stream-card${sourceSide ? "" : " no-side"} focusable${focused ? " focused" : ""}"
+                 data-episode-stream-index="${index}">
+          <div class="player-source-main">
+            ${topBadges}
+            <div class="player-source-title" dir="${contentTextDirection(sourceLabel)}">${escapeHtml(sourceLabel)}</div>
+            <div class="player-source-desc" dir="${contentTextDirection(sourceDescription)}">${escapeHtml(sourceDescription)}</div>
+            ${bottomBadges}
+          </div>
+          ${sourceSide}
+        </article>
+      `;
+    },
+    getEpisodeStreamRenderLimit(streamCount) {
+      const focus = this.episodePanelStreamFocus || {};
+      const focusIndex = focus.zone === "streams" ? Number(focus.index || 0) : 0;
+      const limit = Math.max(
+        Number(this.episodePanelStreamRenderLimit || 0),
+        EPISODE_STREAM_RENDER_BATCH,
+        focusIndex + 1 + Math.ceil(EPISODE_STREAM_RENDER_BATCH / 2)
+      );
+      return Math.min(streamCount, limit);
+    },
+    appendEpisodeStreamCards(minimumCount = 0) {
+      const list = this.uiRefs?.root?.querySelector("#episodeSidePanel .player-episode-stream-list");
+      const streams = this.getFilteredEpisodePanelStreams();
+      const rendered = list ? list.querySelectorAll("[data-episode-stream-index]").length : 0;
+      if (!list || rendered >= streams.length || rendered < Number(this.episodePanelStreamRenderLimit || 0)) {
+        return false;
+      }
+      const target = Math.min(streams.length, Math.max(minimumCount, rendered + EPISODE_STREAM_RENDER_BATCH));
+      const context = this.getEpisodeStreamCardContext();
+      const markup = streams
+        .slice(rendered, target)
+        .map((stream, offset) => this.renderEpisodeStreamCard(stream, rendered + offset, context))
+        .join("");
+      list.insertAdjacentHTML("beforeend", markup);
+      this.episodePanelStreamRenderLimit = target;
+      this.renderedEpisodePanelMarkup = null;
+      return true;
+    },
+    handleEpisodeStreamListScroll(event) {
+      const list = event?.currentTarget;
+      if (list && list.scrollTop + list.clientHeight >= list.scrollHeight - list.clientHeight) {
+        this.appendEpisodeStreamCards();
+      }
+    },
     renderEpisodeStreamsView() {
       const selectedEpisode = this.episodes[this.episodePanelIndex] || null;
       const filters = this.getEpisodePanelStreamFilters();
       const streams = this.getFilteredEpisodePanelStreams();
-      const focus = this.episodePanelStreamFocus || { zone: "actions", index: 0 };
-      const badgeSettings = StreamBadgeSettingsStore.snapshot();
-      const showAddonLogo = badgeSettings.showAddonLogo === true;
-      const badgePlacement = resolvePlayerSourceBadgePlacement(badgeSettings);
+      const context = this.getEpisodeStreamCardContext();
+      const { focus } = context;
       const episodeCode = episodeDisplayCode(selectedEpisode);
       const episodeTitle = String(selectedEpisode?.title || t("episodes_episode", {}, "Episode")).trim();
+      const renderLimit = this.getEpisodeStreamRenderLimit(streams.length);
+      this.episodePanelStreamRenderLimit = renderLimit;
 
       return `
           <div class="player-episode-stream-actions">
@@ -52,7 +125,7 @@ export function createPlayerScreenMethods67() {
           </div>
 
           ${
-            !this.episodePanelStreamsLoading && filters.length > 1
+            this.hasEpisodeStreamFilterRow()
               ? `<div class="player-episode-stream-filters">
                   ${filters
                     .map((filter, index) => {
@@ -86,36 +159,8 @@ export function createPlayerScreenMethods67() {
               !this.episodePanelStreamsLoading && !this.episodePanelStreamsError && !streams.length
                 ? `<div class="player-episode-stream-empty">${escapeHtml(t("episodes_panel_no_streams", {}, "No streams found"))}</div>`
                 : streams
-                    .map((stream, index) => {
-                      const focused = focus.zone === "streams" && focus.index === index;
-                      const badges = renderPlayerSourceBadges(stream, badgeSettings);
-                      const topBadges = badgePlacement === "TOP" ? badges : "";
-                      const bottomBadges = badgePlacement === "BOTTOM" ? badges : "";
-                      const addonLogoUrl = showAddonLogo
-                        ? getPlayerSourceLogoDisplayUrl(stream.addonLogo, () => this.scheduleSourceLogoRender())
-                        : "";
-                      const sourceLabel = stream.label || "Stream";
-                      const sourceDescription = stream.description || stream.addonName || "";
-                      const sourceAddonName = stream.addonName || t("nav_addons", {}, "Addon");
-                      const sourceSide = showAddonLogo
-                        ? `<div class="player-source-side">
-                            ${addonLogoUrl ? `<img class="player-source-logo" src="${escapeAttribute(addonLogoUrl)}" alt="" decoding="async" loading="lazy" referrerpolicy="no-referrer" />` : ""}
-                            <div class="player-source-addon" dir="${contentTextDirection(sourceAddonName)}">${escapeHtml(sourceAddonName)}</div>
-                          </div>`
-                        : "";
-                      return `
-                        <article class="player-source-card player-episode-stream-card${sourceSide ? "" : " no-side"} focusable${focused ? " focused" : ""}"
-                                 data-episode-stream-index="${index}">
-                          <div class="player-source-main">
-                            ${topBadges}
-                            <div class="player-source-title" dir="${contentTextDirection(sourceLabel)}">${escapeHtml(sourceLabel)}</div>
-                            <div class="player-source-desc" dir="${contentTextDirection(sourceDescription)}">${escapeHtml(sourceDescription)}</div>
-                            ${bottomBadges}
-                          </div>
-                          ${sourceSide}
-                        </article>
-                      `;
-                    })
+                    .slice(0, renderLimit)
+                    .map((stream, index) => this.renderEpisodeStreamCard(stream, index, context))
                     .join("")
             }
           </div>
@@ -132,18 +177,15 @@ export function createPlayerScreenMethods67() {
       }
       const existingPanel = panelHost.querySelector("#episodeSidePanel");
       const shouldAnimateEntry = !existingPanel || existingPanel.classList.contains("is-exiting");
-      existingPanel?.remove();
       if (!this.episodePanelVisible) {
+        existingPanel?.remove();
+        this.renderedEpisodePanelMarkup = null;
         return;
       }
-      const panel = document.createElement("div");
-      panel.id = "episodeSidePanel";
-      panel.className = "player-episode-panel";
 
       this.syncEpisodePanelSeasonToIndex();
       const seasons = this.getEpisodePanelSeasons();
       const hasSeasonTabs = seasons.length > 1;
-      panel.classList.toggle("has-season-tabs", hasSeasonTabs);
       const focusedZone = this.episodePanelFocusZone || "episodes";
       const seasonTabs = hasSeasonTabs
         ? `<div class="player-episode-season-tabs">
@@ -195,7 +237,7 @@ export function createPlayerScreenMethods67() {
 
       const isStreamsView = this.episodePanelMode === "streams";
       const streamFocus = this.episodePanelStreamFocus || { zone: "actions", index: 0 };
-      panel.innerHTML = `
+      const markup = `
           <div class="player-episode-panel-header">
             <div class="player-episode-panel-title">${escapeHtml(isStreamsView ? t("episodes_panel_streams_title", {}, "Streams") : t("episodes_panel_title", {}, "Episodes"))}</div>
             <button type="button" class="player-episode-close-btn focusable${isStreamsView ? (streamFocus.zone === "close" ? " focused" : "") : focusedZone === "close" ? " focused" : ""}" tabindex="-1" data-episode-action="close">
@@ -209,6 +251,22 @@ export function createPlayerScreenMethods67() {
                  <div class="player-episode-list">${cards}</div>`
           }
         `;
+      // Chunk and logo renders often change nothing; skip reparsing the cards.
+      if (!shouldAnimateEntry && this.renderedEpisodePanelMarkup === markup) {
+        this.scrollEpisodePanelIntoView();
+        return;
+      }
+      existingPanel?.remove();
+      const panel = document.createElement("div");
+      panel.id = "episodeSidePanel";
+      panel.className = "player-episode-panel";
+      panel.classList.toggle("has-season-tabs", hasSeasonTabs);
+      panel.dataset.episodePanelMode = isStreamsView ? "streams" : "episodes";
+      panel.innerHTML = markup;
+      this.renderedEpisodePanelMarkup = markup;
+      panel.querySelector(".player-episode-stream-list")?.addEventListener("scroll", (event) => this.handleEpisodeStreamListScroll(event), {
+        passive: true
+      });
       panelHost.appendChild(panel);
       if (shouldAnimateEntry) {
         panel.classList.add("is-entering");
@@ -234,6 +292,7 @@ export function createPlayerScreenMethods67() {
       if (this.episodePanelExitTimer) {
         clearTimeout(this.episodePanelExitTimer);
       }
+      this.renderedEpisodePanelMarkup = null;
       this.episodePanelExitTimer = setTimeout(() => {
         panel?.remove();
         this.episodePanelExitTimer = null;
@@ -251,7 +310,7 @@ export function createPlayerScreenMethods67() {
       }
       streamRepository.setLocalPluginSearchPaused(true);
       if (!selectedStream && this.episodePanelMode !== "streams") {
-        await this.openEpisodeStreamsView({ forceReload: true });
+        await this.openEpisodeStreamsView();
         return;
       }
       this.switchingEpisode = true;

@@ -306,7 +306,7 @@ export function createPlayerScreenMethods65() {
       const nextPosition = clamp(currentPosition + delta, 0, entries.length - 1);
       this.episodePanelIndex = entries[nextPosition]?.index ?? this.episodePanelIndex;
       this.episodePanelFocusZone = "episodes";
-      this.renderEpisodePanel();
+      this.syncEpisodePanelFocusDom();
     },
     moveEpisodePanelSeason(delta) {
       const seasons = this.getEpisodePanelSeasons();

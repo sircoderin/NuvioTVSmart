@@ -46,3 +46,9 @@
 .performance-constrained .profile-screen.is-pin-closing .profile-main-layer {
   transform: none;
 }
+
+/* A 3D transform gives every Home row track its own compositor layers, and
+   each focus move updates all of them. Keep the tracks in the page layer. */
+.performance-constrained .home-screen-shell .home-track {
+  transform: none;
+}

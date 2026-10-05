@@ -28,6 +28,7 @@ export function createStreamScreenMethods03() {
       this.stopStreamVirtualization();
       this.streamVirtualHeights = new Map();
       this.streamVirtualFocusReset = false;
+      this.streamFocusUserMoved = false;
       this.streamLastNavigationRepeatAt = 0;
       this.loadToken = (this.loadToken || 0) + 1;
       const token = this.loadToken;

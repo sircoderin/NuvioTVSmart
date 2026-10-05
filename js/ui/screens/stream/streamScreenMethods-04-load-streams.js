@@ -41,6 +41,7 @@ export function createStreamScreenMethods04() {
         this.focusState = { zone: "filter", index: 0 };
         this.listScrollTop = 0;
         this.addonLogoLookup = {};
+        this.streamFocusUserMoved = false;
       }
 
       if (!preserveExistingResults) {
@@ -172,6 +173,13 @@ export function createStreamScreenMethods04() {
         const firstVisibleChunk = this.loading;
         if (firstVisibleChunk && this.streams.length && this.focusState?.zone !== "card") {
           this.focusState = { zone: "card", row: 0, action: "play" };
+        } else if (!firstVisibleChunk && !this.streamFocusUserMoved && this.focusState?.zone === "card") {
+          // Until the user moves, keep the initial focus on the top result so a
+          // slower, higher-ranked source takes the first row when it arrives.
+          this.focusState = { zone: "card", row: 0, index: 0, action: "play" };
+          this.listScrollTop = 0;
+          this.streamVirtualFocusReset = true;
+          this.streamVirtualPreferredIndex = 0;
         }
         if (firstVisibleChunk) {
           // Android's stream state leaves the loading phase as soon as the first

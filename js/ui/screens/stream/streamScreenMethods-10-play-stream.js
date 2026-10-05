@@ -192,6 +192,7 @@ export function createStreamScreenMethods10() {
         this.streamLastNavigationRepeatAt = now;
       }
       if (direction) {
+        this.streamFocusUserMoved = true;
         let { chips, rows, rowCount, virtualized } = this.getFocusLists();
         const zone = this.focusState?.zone || (rowCount ? "card" : "filter");
         let index = Number(this.focusState?.index || 0);

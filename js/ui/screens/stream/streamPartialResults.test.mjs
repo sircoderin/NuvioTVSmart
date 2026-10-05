@@ -197,3 +197,72 @@ test("late source insertion preserves the selected stream through virtualization
     StreamBadgeSettingsStore.snapshot = originalSnapshot;
   }
 });
+
+test("a slower first-ranked source takes initial focus until the user moves", async () => {
+  const originals = {
+    getStreams: streamRepository.getStreamsFromAllAddons,
+    snapshot: StreamBadgeSettingsStore.snapshot
+  };
+  StreamBadgeSettingsStore.snapshot = () => ({ showAddonLogo: false, rules: { imports: [] } });
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const group = (addonName, addonOrderIndex, id) => ({
+    addonName,
+    addonOrderIndex,
+    streams: [{ id, url: `https://example.test/${id}.mp4`, name: id }]
+  });
+  try {
+    for (const userMoved of [false, true]) {
+      let options;
+      let finish;
+      streamRepository.getStreamsFromAllAddons = (_type, _id, nextOptions) => {
+        options = nextOptions;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      };
+      const screen = {
+        ...createStreamScreenMethods04(),
+        streams: [],
+        loadToken: 1,
+        hasRenderedStreamRouteShell: true,
+        params: { itemType: "movie", itemId: "movie", videoId: "movie" },
+        requestRender() {},
+        applyAddonLogos: (streams) => streams,
+        scheduleDebridPreparation() {},
+        maybeAutoResumeStream() {},
+        maybeAutoPlayStream() {},
+        scheduleErrorChipCleanup() {},
+        getFilteredStreams() {
+          return this.streams;
+        }
+      };
+      const loading = screen.loadStreams();
+      options.onAddon({ name: "Preferred", orderIndex: 0 });
+      options.onAddon({ name: "Quick", orderIndex: 1 });
+      options.onChunk({ status: "success", data: [group("Quick", 1, "quick")] });
+      await flush();
+      if (userMoved) {
+        screen.streamFocusUserMoved = true;
+        screen.focusState = { zone: "card", row: 0, action: "native" };
+      }
+      options.onChunk({ status: "success", data: [group("Preferred", 0, "preferred")] });
+      await flush();
+      assert.deepEqual(
+        screen.streams.map((stream) => stream.id),
+        ["preferred", "quick"]
+      );
+      if (userMoved) {
+        assert.equal(screen.streamVirtualFocusReset, undefined, "user focus is left to identity tracking");
+        assert.equal(screen.focusState.action, "native");
+      } else {
+        assert.equal(screen.focusState.row, 0);
+        assert.equal(screen.streamVirtualFocusReset, true, "render must not pin focus to the quick source");
+      }
+      finish({ status: "success", data: [] });
+      await loading;
+    }
+  } finally {
+    streamRepository.getStreamsFromAllAddons = originals.getStreams;
+    StreamBadgeSettingsStore.snapshot = originals.snapshot;
+  }
+});

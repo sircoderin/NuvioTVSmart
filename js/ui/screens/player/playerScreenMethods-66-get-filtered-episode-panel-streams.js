@@ -2,7 +2,7 @@
 import * as internals from "./playerScreenContext.js";
 
 export function createPlayerScreenMethods66() {
-  const { streamRepository, shouldAppendStreamCards, isSelectKeyCode, t, clamp, normalizeItemType } = internals;
+  const { streamRepository, shouldAppendStreamCards, isSelectKeyCode, t, clamp, normalizeItemType, streamMergeKey } = internals;
 
   return {
     getFilteredEpisodePanelStreams() {
@@ -14,6 +14,7 @@ export function createPlayerScreenMethods66() {
     },
     closeEpisodeStreamsView() {
       streamRepository.setLocalPluginSearchPaused(true);
+      this.episodePanelStreamLoadToken = Number(this.episodePanelStreamLoadToken || 0) + 1;
       this.episodePanelMode = "episodes";
       this.episodePanelStreamsLoading = false;
       this.episodePanelStreamsError = "";
@@ -48,6 +49,7 @@ export function createPlayerScreenMethods66() {
         token === this.episodePanelStreamLoadToken &&
         this.episodePanelVisible &&
         this.episodePanelMode === "streams" &&
+        !this.switchingEpisode &&
         String(this.episodePanelStreamVideoId || "") === String(selected.id);
       try {
         const streams = await this.getPlayableStreamsForVideo(selected.id, itemType, {
@@ -66,19 +68,18 @@ export function createPlayerScreenMethods66() {
         }
         this.episodePanelStreamsLoading = false;
         this.applyEpisodePanelStreams(streams);
+        this.renderEpisodePanel();
       } catch (_error) {
-        if (token !== this.episodePanelStreamLoadToken) {
+        if (!isCurrentLoad()) {
           return;
         }
-        this.episodePanelStreams = [];
         this.episodePanelStreamsLoading = false;
         this.episodePanelStreamsError = t("panel_failed_load_streams", {}, "Failed to load streams");
-        this.episodePanelStreamFocus = { zone: "actions", index: 0 };
+        this.renderEpisodePanel();
       }
-      this.renderEpisodePanel();
     },
     applyEpisodePanelStreams(streams = []) {
-      const streamKey = (stream) => String(stream?.id || stream?.url || "");
+      const streamKey = (stream) => streamMergeKey(stream) || String(stream?.id || stream?.url || "");
       const focus = this.episodePanelStreamFocus || { zone: "actions", index: 0 };
       const focusedStream = focus.zone === "streams" ? this.getFilteredEpisodePanelStreams()[focus.index] : null;
       const focusedFilter = focus.zone === "filters" ? this.getEpisodePanelStreamFilters()[focus.index] : null;

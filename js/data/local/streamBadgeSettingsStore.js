@@ -206,8 +206,9 @@ export const StreamBadgeSettingsStore = {
   },
 
   snapshot() {
-    const settings = this.get();
-    return { ...settings, rules: prepareStreamBadgeRules(settings.rules) };
+    const settings = normalizeStreamBadgeSettings(this.get());
+    settings.rules = prepareStreamBadgeRules(settings.rules);
+    return settings;
   }
 };
 

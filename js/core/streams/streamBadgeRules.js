@@ -276,31 +276,29 @@ function stableStringify(value) {
 }
 
 const compiledBadgeCache = new Map();
-const PREPARED_BADGE_RULES = Symbol("preparedBadgeRules");
+const preparedBadgeRules = new WeakMap();
 const MAX_COMPILED_RULES = 8;
 const MAX_MATCHES_PER_RULES = 256;
 
-// A concatenation of positive lookaheads beginning with .* asks whether
-// each condition exists somewhere in a line. Trying again at every character
-// cannot add a match, but makes misses quadratic. Recognize only this narrow
-// shape; consuming patterns and capturing groups keep their original regex.
+// Only zero-width positive lookaheads whose conditions search the entire
+// remaining single line. Captures/backreferences and other shapes are excluded.
 function isWholeLineLookaheadPattern(source) {
   let position = 0;
   while (position < source.length) {
     if (!source.startsWith("(?=.*", position)) return false;
+    position += 5;
     let depth = 1;
     let inClass = false;
-    position += 5;
     while (position < source.length && depth) {
       const character = source[position++];
       if (character === "\\") {
-        // Captures/backreferences can make the selected starting point matter.
         if (/[1-9k]/.test(source[position] || "")) return false;
         position++;
-      } else if (character === "[" && !inClass) inClass = true;
+      } else if (!inClass && depth === 1 && character === "|") return false;
+      else if (character === "[" && !inClass) inClass = true;
       else if (character === "]" && inClass) inClass = false;
       else if (!inClass && character === "(") {
-        if (!source.slice(position - 1).match(/^\(\?[=:!]/)) return false;
+        if (!/^\(\?[=:!]/.test(source.slice(position - 1))) return false;
         depth++;
       } else if (!inClass && character === ")") depth--;
     }
@@ -310,7 +308,8 @@ function isWholeLineLookaheadPattern(source) {
 }
 
 function compileStreamBadgeFilters(rules = {}) {
-  if (rules?.[PREPARED_BADGE_RULES]) return rules[PREPARED_BADGE_RULES];
+  const prepared = preparedBadgeRules.get(rules);
+  if (prepared) return prepared;
   const normalized = normalizeStreamBadgeRules(rules);
   const fingerprint = stableStringify(normalized);
   const cached = compiledBadgeCache.get(fingerprint);
@@ -376,13 +375,10 @@ function compileStreamBadgeFilters(rules = {}) {
   return entry;
 }
 
-// Prepare one immutable presentation snapshot per batch/render. This avoids
-// normalizing and fingerprinting all imported filters for every stream card.
 export function prepareStreamBadgeRules(rules = {}) {
+  if (preparedBadgeRules.has(rules)) return rules;
   const normalized = normalizeStreamBadgeRules(rules);
-  Object.defineProperty(normalized, PREPARED_BADGE_RULES, {
-    value: compileStreamBadgeFilters(normalized)
-  });
+  preparedBadgeRules.set(normalized, compileStreamBadgeFilters(normalized));
   normalized.imports.forEach((entry) => {
     entry.filters.forEach(Object.freeze);
     entry.groups.forEach(Object.freeze);
@@ -403,11 +399,11 @@ export function matchStreamBadges(stream = {}, rules = {}) {
   if (!candidates.length) {
     return [];
   }
-  const key = JSON.stringify(candidates);
-  const cached = matches.get(key);
+  const cacheKey = JSON.stringify(candidates);
+  const cached = matches.get(cacheKey);
   if (cached) {
-    matches.delete(key);
-    matches.set(key, cached);
+    matches.delete(cacheKey);
+    matches.set(cacheKey, cached);
     return cached.map((badge) => ({ ...badge }));
   }
 
@@ -429,7 +425,7 @@ export function matchStreamBadges(stream = {}, rules = {}) {
     }
   });
   const result = Array.from(matched.values());
-  matches.set(key, result);
+  matches.set(cacheKey, result);
   if (matches.size > MAX_MATCHES_PER_RULES) matches.delete(matches.keys().next().value);
   return result.map((badge) => ({ ...badge }));
 }

@@ -201,6 +201,13 @@ export function createHomeScreenMethods04() {
       if (this.layoutMode === "modern" && this.hasUserInteractedSinceHomePaint && this.shouldSuspendModernViewportFocusSync()) {
         return true;
       }
+      // Rows loaded ahead of focus must appear while a direction key is held
+      // at the last row; deferring them would stop navigation there.
+      const navRows = this.navModel?.rows || [];
+      const focusedNode = this.getCurrentFocusedNode();
+      if (focusedNode && navRows.length && navRows[navRows.length - 1].includes(focusedNode)) {
+        return false;
+      }
       // Tizen fast path: on constrained/legacy runtimes a full innerHTML
       // render mid-navigation steals frames and invalidates the nav model.
       // Defer background renders until 800ms after the last D-pad press on

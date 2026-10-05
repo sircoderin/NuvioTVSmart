@@ -15,6 +15,7 @@ export function createHomeScreenMethods21() {
     WatchProgressSource,
     buildWatchedTitleIdSet,
     buildCatalogOrderKey,
+    buildCatalogDisableKey,
     catalogShouldShowOnHome,
     catalogSkipStep,
     catalogSupportsExtra,
@@ -24,6 +25,10 @@ export function createHomeScreenMethods21() {
     HOME_PERF_DEBUG,
     mergeRefreshedHomeRows,
     createHomeRowBatcher,
+    orderHomeCatalogDescriptors,
+    initialHomeCatalogDescriptors,
+    homeCatalogWindowTarget,
+    HOME_CATALOG_PRELOAD_ROWS,
     shouldApplyLateContinueWatchingFocus,
     homePerfNow,
     logHomePerf,
@@ -143,13 +148,31 @@ export function createHomeScreenMethods21() {
 
       // Seed missing order keys from manifest order before progressive requests
       // can add rows in network-completion order.
-      HomeCatalogStore.ensureOrderKeys(
+      const orderedCatalogKeys = HomeCatalogStore.ensureOrderKeys(
         uniqueCatalogDescriptors.map((catalog) => buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId))
       );
+      const displayDescriptors = orderHomeCatalogDescriptors(
+        uniqueCatalogDescriptors.map((catalog) => ({
+          ...catalog,
+          homeCatalogKey: buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId),
+          homeCatalogDisableKey: buildCatalogDisableKey(catalog.addonBaseUrl, catalog.type, catalog.catalogId, catalog.catalogName)
+        })),
+        { orderedKeys: orderedCatalogKeys, disabledKeys: HomeCatalogStore.get().disabled || [] }
+      );
 
+      // Home requests catalogs in display order as far as the user can reach:
+      // the first rows now, and more as focus or scrolling nears the end.
       const initialCatalogLoad = this.getInitialCatalogLoadCount();
-      const initialDescriptors = uniqueCatalogDescriptors.slice(0, initialCatalogLoad);
-      const deferredDescriptors = uniqueCatalogDescriptors.slice(initialCatalogLoad);
+      const windowCount = Math.max(initialCatalogLoad, background ? Number(this.homeCatalogWindowCount || 0) : 0);
+      const initialDescriptors = initialHomeCatalogDescriptors(displayDescriptors, {
+        count: initialCatalogLoad,
+        heroCatalogKeys: prefs.heroCatalogKeys || []
+      });
+      const initialKeys = new Set(initialDescriptors.map((catalog) => catalog.homeCatalogKey));
+      const deferredDescriptors = displayDescriptors.slice(0, windowCount).filter((catalog) => !initialKeys.has(catalog.homeCatalogKey));
+      this.homeCatalogDescriptors = displayDescriptors;
+      this.homeCatalogWindowCount = windowCount;
+      this.homeCatalogRequestedKeys = new Set([...initialKeys, ...deferredDescriptors.map((catalog) => catalog.homeCatalogKey)]);
 
       const progressiveInitialRows = new Map();
       const initialRows = await this.fetchCatalogRows(initialDescriptors, {
@@ -262,60 +285,8 @@ export function createHomeScreenMethods21() {
         }
       });
 
-      if (deferredDescriptors.length) {
-        // Publish completed rows in batches; requestBackgroundRender keeps the
-        // legacy-TV render delay and navigation deferral in effect.
-        const deferredRows = createHomeRowBatcher({
-          delayMs: this.getDeferredRowBatchDelay(),
-          onFlush: (rows) => {
-            if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
-              return;
-            }
-            const combinedByKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
-            rows.forEach((row) => combinedByKey.set(row.homeCatalogKey, row));
-            this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
-            this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
-            if (!this.heroItem) {
-              this.heroItem = this.pickInitialHero();
-            }
-            void this.refreshWatchedTitleState({ token });
-            this.requestBackgroundRender();
-          }
-        });
-        // Request every deferred catalog at once: responses reach the page only
-        // between main-thread tasks, so a cap on requests in flight lets each
-        // Home render delay the next catalogs.
-        this.fetchCatalogRows(deferredDescriptors, {
-          allowLoading: true,
-          shouldContinue: () => token === this.homeLoadToken,
-          onRow: (row) => {
-            if (token === this.homeLoadToken && Router.getCurrent() === "home") {
-              deferredRows.add(row);
-            }
-          }
-        })
-          .then((extraRows) => {
-            deferredRows.cancel();
-            if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
-              return;
-            }
-            const combinedByKey = new Map();
-            [...this.rows, ...extraRows].forEach((row) => {
-              combinedByKey.set(row.homeCatalogKey, row);
-            });
-            this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
-            this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
-            if (!this.heroItem) {
-              this.heroItem = this.pickInitialHero();
-            }
-            void this.refreshWatchedTitleState({ token });
-            this.requestBackgroundRender();
-            this.retryPendingCatalogRows();
-          })
-          .catch((error) => {
-            console.warn("Deferred home rows load failed", error);
-          });
-      }
+      void this.loadHomeCatalogRange(deferredDescriptors, { token });
+      this.ensureHomeCatalogWindowForNode(this.getCurrentFocusedNode());
 
       if (this.layoutMode !== "modern") {
         this.enrichHero(this.heroCandidates[0] || null)
@@ -348,6 +319,96 @@ export function createHomeScreenMethods21() {
         hasExistingContinueWatchingDisplay
       });
       this.retryPendingCatalogRows();
+    },
+    loadHomeCatalogRange(descriptors = [], { token = this.homeLoadToken } = {}) {
+      if (!descriptors.length) {
+        return Promise.resolve([]);
+      }
+      // Publish completed rows in batches; requestBackgroundRender keeps the
+      // legacy-TV render delay and navigation deferral in effect.
+      const rangeRows = createHomeRowBatcher({
+        delayMs: this.getDeferredRowBatchDelay(),
+        onFlush: (rows) => {
+          if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+            return;
+          }
+          const combinedByKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
+          rows.forEach((row) => combinedByKey.set(row.homeCatalogKey, row));
+          this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
+          this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
+          if (!this.heroItem) {
+            this.heroItem = this.pickInitialHero();
+          }
+          void this.refreshWatchedTitleState({ token });
+          this.requestBackgroundRender();
+        }
+      });
+      // Request the whole range at once: responses reach the page only between
+      // main-thread tasks, so a cap on requests in flight lets each Home render
+      // delay the next catalogs.
+      return this.fetchCatalogRows(descriptors, {
+        allowLoading: true,
+        shouldContinue: () => token === this.homeLoadToken,
+        onRow: (row) => {
+          if (token === this.homeLoadToken && Router.getCurrent() === "home") {
+            rangeRows.add(row);
+          }
+        }
+      })
+        .then((extraRows) => {
+          rangeRows.cancel();
+          if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+            return [];
+          }
+          const combinedByKey = new Map();
+          [...this.rows, ...extraRows].forEach((row) => {
+            combinedByKey.set(row.homeCatalogKey, row);
+          });
+          this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
+          this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
+          if (!this.heroItem) {
+            this.heroItem = this.pickInitialHero();
+          }
+          void this.refreshWatchedTitleState({ token });
+          this.requestBackgroundRender();
+          this.retryPendingCatalogRows();
+          return extraRows;
+        })
+        .catch((error) => {
+          console.warn("Deferred home rows load failed", error);
+          return [];
+        });
+    },
+    extendHomeCatalogWindow(targetCount) {
+      const descriptors = Array.isArray(this.homeCatalogDescriptors) ? this.homeCatalogDescriptors : [];
+      const target = Math.min(descriptors.length, Math.max(0, Math.trunc(Number(targetCount) || 0)));
+      if (target <= Number(this.homeCatalogWindowCount || 0)) {
+        return false;
+      }
+      this.homeCatalogWindowCount = target;
+      const requested = this.homeCatalogRequestedKeys || new Set();
+      const next = descriptors.slice(0, target).filter((catalog) => !requested.has(catalog.homeCatalogKey));
+      next.forEach((catalog) => requested.add(catalog.homeCatalogKey));
+      this.homeCatalogRequestedKeys = requested;
+      void this.loadHomeCatalogRange(next, { token: this.homeLoadToken });
+      return next.length > 0;
+    },
+    ensureHomeCatalogWindowForNode(node) {
+      if (!Array.isArray(this.homeCatalogDescriptors) || !node || !this.isMainNode(node)) {
+        return false;
+      }
+      return this.extendHomeCatalogWindow(homeCatalogWindowTarget(this.rows || [], this.getNodeRowKey(node), HOME_CATALOG_PRELOAD_ROWS));
+    },
+    ensureHomeCatalogWindowForViewport(viewport) {
+      if (!Array.isArray(this.homeCatalogDescriptors) || !viewport) {
+        return false;
+      }
+      // Pointer scrolling reaches rows without moving focus.
+      const remaining = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      if (remaining > viewport.clientHeight) {
+        return false;
+      }
+      return this.extendHomeCatalogWindow(Number(this.homeCatalogWindowCount || 0) + HOME_CATALOG_PRELOAD_ROWS);
     }
   };
 }

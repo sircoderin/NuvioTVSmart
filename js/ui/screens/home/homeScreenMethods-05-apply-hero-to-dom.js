@@ -231,6 +231,7 @@ export function createHomeScreenMethods05() {
         ...(this.lastFocusedItemIndexByRowKey || {}),
         [rowKey]: Math.max(0, Number(node.dataset?.navCol || 0))
       };
+      this.ensureHomeCatalogWindowForNode(node);
     },
     resolvePreferredNodeForRow(rowNodes = [], _fallbackCol = 0) {
       if (!Array.isArray(rowNodes) || !rowNodes.length) {

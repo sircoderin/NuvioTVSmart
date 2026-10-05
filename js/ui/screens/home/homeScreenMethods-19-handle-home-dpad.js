@@ -270,6 +270,7 @@ export function createHomeScreenMethods19() {
           }
           this.homeViewportScrollFrame = requestAnimationFrame(() => {
             this.homeViewportScrollFrame = 0;
+            this.ensureHomeCatalogWindowForViewport(this.boundHomeViewport);
             if (this.shouldSuspendModernViewportFocusSync()) {
               return;
             }

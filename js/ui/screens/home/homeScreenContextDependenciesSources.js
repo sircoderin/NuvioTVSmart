@@ -139,6 +139,7 @@ export {
   HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS,
   HOME_BACKGROUND_RENDER_DELAY_MS,
   HOME_DEFERRED_ROW_BATCH_MS,
+  HOME_CATALOG_PRELOAD_ROWS,
   HOME_LEGACY_LAZY_HYDRATION_DEBOUNCE_MS,
   HOME_LEGACY_LAZY_HYDRATION_MAX_PER_FRAME,
   HOME_ADDON_MANIFEST_TIMEOUT_MS,
@@ -167,6 +168,8 @@ export {
 } from "./homeConstants.js";
 
 export { createHomeRowBatcher, mergeRefreshedHomeRows } from "./homeRowMerge.js";
+
+export { homeCatalogWindowTarget, initialHomeCatalogDescriptors, orderHomeCatalogDescriptors } from "./homeCatalogWindow.js";
 
 export { findHomeFocusIdentityMatch, getHomeFocusIdentity, shouldApplyLateContinueWatchingFocus } from "./homeFocusPolicy.js";
 

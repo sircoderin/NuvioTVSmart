@@ -23,6 +23,7 @@ export function createHomeScreenMethods21() {
     HOME_ADDON_MANIFEST_TIMEOUT_MS,
     HOME_PERF_DEBUG,
     mergeRefreshedHomeRows,
+    createHomeRowBatcher,
     shouldApplyLateContinueWatchingFocus,
     homePerfNow,
     logHomePerf,
@@ -262,17 +263,16 @@ export function createHomeScreenMethods21() {
       });
 
       if (deferredDescriptors.length) {
-        this.fetchCatalogRows(deferredDescriptors, {
-          allowLoading: true,
-          batchSize: this.getDeferredCatalogBatchSize(),
-          // Publish completed rows independently; requestBackgroundRender keeps
-          // the legacy-TV render delay and navigation deferral in effect.
-          onRow: (row) => {
+        // Publish completed rows in batches; requestBackgroundRender keeps the
+        // legacy-TV render delay and navigation deferral in effect.
+        const deferredRows = createHomeRowBatcher({
+          delayMs: this.getDeferredRowBatchDelay(),
+          onFlush: (rows) => {
             if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
               return;
             }
             const combinedByKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
-            combinedByKey.set(row.homeCatalogKey, row);
+            rows.forEach((row) => combinedByKey.set(row.homeCatalogKey, row));
             this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
             this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
             if (!this.heroItem) {
@@ -281,8 +281,18 @@ export function createHomeScreenMethods21() {
             void this.refreshWatchedTitleState({ token });
             this.requestBackgroundRender();
           }
+        });
+        this.fetchCatalogRows(deferredDescriptors, {
+          allowLoading: true,
+          batchSize: this.getDeferredCatalogBatchSize(),
+          onRow: (row) => {
+            if (token === this.homeLoadToken && Router.getCurrent() === "home") {
+              deferredRows.add(row);
+            }
+          }
         })
           .then((extraRows) => {
+            deferredRows.cancel();
             if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
               return;
             }

@@ -138,6 +138,7 @@ export {
   HERO_ROTATE_INTERVAL_MS,
   HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS,
   HOME_BACKGROUND_RENDER_DELAY_MS,
+  HOME_DEFERRED_ROW_BATCH_MS,
   HOME_LEGACY_LAZY_HYDRATION_DEBOUNCE_MS,
   HOME_LEGACY_LAZY_HYDRATION_MAX_PER_FRAME,
   HOME_ADDON_MANIFEST_TIMEOUT_MS,
@@ -165,7 +166,7 @@ export {
   HOME_STABLE_GATE_TIMEOUT_MS
 } from "./homeConstants.js";
 
-export { mergeRefreshedHomeRows } from "./homeRowMerge.js";
+export { createHomeRowBatcher, mergeRefreshedHomeRows } from "./homeRowMerge.js";
 
 export { findHomeFocusIdentityMatch, getHomeFocusIdentity, shouldApplyLateContinueWatchingFocus } from "./homeFocusPolicy.js";
 

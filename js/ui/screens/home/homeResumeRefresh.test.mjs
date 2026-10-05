@@ -64,3 +64,38 @@ test("Home skips its resume reload only after passive routes with unchanged inpu
     Router.getRoutesVisitedSince = originals.getRoutesVisitedSince;
   }
 });
+
+test("a watched-title refresh renders only when the watched set changes", async () => {
+  const { createHomeScreenMethods20 } = await import("./homeScreenMethods-20-mount.js");
+  const { watchedTitleStateRepository } =
+    await import("../../../data/repository/watchedTitleStateRepository.js");
+  const originals = {
+    project: watchedTitleStateRepository.getTitleWatchedItems,
+    current: Router.getCurrent
+  };
+  let projected = [{ id: "tt1", type: "movie" }];
+  watchedTitleStateRepository.getTitleWatchedItems = async () => projected;
+  Router.getCurrent = () => "home";
+  let renders = 0;
+  const screen = {
+    ...createHomeScreenMethods20(),
+    homeLoadToken: 1,
+    rows: [{ result: { data: { items: [{ id: "tt1" }, { id: "tt2" }] } } }],
+    watchedItems: [],
+    requestBackgroundRender() {
+      renders += 1;
+    }
+  };
+  try {
+    await screen.refreshWatchedTitleState();
+    assert.equal(renders, 1);
+    await screen.refreshWatchedTitleState();
+    assert.equal(renders, 1, "an identical watched set does not re-render Home");
+    projected = [...projected, { id: "tt2", type: "movie" }];
+    await screen.refreshWatchedTitleState();
+    assert.equal(renders, 2);
+  } finally {
+    watchedTitleStateRepository.getTitleWatchedItems = originals.project;
+    Router.getCurrent = originals.current;
+  }
+});

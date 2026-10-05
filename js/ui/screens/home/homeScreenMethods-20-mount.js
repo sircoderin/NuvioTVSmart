@@ -294,8 +294,15 @@ export function createHomeScreenMethods20() {
         return;
       }
       this.watchedItems = Array.isArray(projectedItems) ? projectedItems : baseWatchedItems;
+      const previousIds = this.watchedTitleIds;
       this.watchedTitleIds = buildWatchedTitleIdSet(this.watchedItems);
-      this.requestBackgroundRender();
+      const changed =
+        !previousIds ||
+        previousIds.size !== this.watchedTitleIds.size ||
+        Array.from(this.watchedTitleIds).some((id) => !previousIds.has(id));
+      if (changed) {
+        this.requestBackgroundRender();
+      }
     }
   };
 }

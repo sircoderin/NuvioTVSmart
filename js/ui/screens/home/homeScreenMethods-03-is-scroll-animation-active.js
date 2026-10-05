@@ -12,6 +12,7 @@ export function createHomeScreenMethods03() {
     CW_RENDER_BATCH_ITEMS_LEGACY_TV,
     HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS,
     HOME_BACKGROUND_RENDER_DELAY_MS,
+    HOME_DEFERRED_ROW_BATCH_MS,
     HOME_INITIAL_CATALOG_LOAD,
     HOME_LOADING_ROW_ITEMS_CONSTRAINED,
     HOME_LOADING_ROW_ITEMS_DEFAULT,
@@ -296,6 +297,9 @@ export function createHomeScreenMethods03() {
         return HOME_BACKGROUND_RENDER_DELAY_MS;
       }
       return 0;
+    },
+    getDeferredRowBatchDelay() {
+      return this.isLegacyTvRuntime() || this.isPerformanceConstrained() ? HOME_DEFERRED_ROW_BATCH_MS : 0;
     },
     getDirectionalRepeatThrottleMs(direction = null) {
       // Tizen fast path: the 48ms fast-horizontal gate passes nearly every

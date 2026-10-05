@@ -58,3 +58,28 @@ export function mergeRefreshedHomeRows(
   fetched.forEach(addRow);
   return merged;
 }
+
+// Publish deferred catalog rows in windows that start at the first pending row,
+// so a steady trickle of rows cannot postpone publishing indefinitely.
+export function createHomeRowBatcher({ delayMs = 0, onFlush } = {}) {
+  const pending = new Map();
+  let timer = null;
+  const flush = () => {
+    timer = null;
+    if (!pending.size) return;
+    const rows = Array.from(pending.values());
+    pending.clear();
+    onFlush(rows);
+  };
+  return {
+    add(row) {
+      pending.set(String(row?.homeCatalogKey || ""), row);
+      if (!timer) timer = setTimeout(flush, Math.max(0, Number(delayMs) || 0));
+    },
+    cancel() {
+      clearTimeout(timer);
+      timer = null;
+      pending.clear();
+    }
+  };
+}

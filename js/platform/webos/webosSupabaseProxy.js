@@ -1,4 +1,5 @@
 import { Environment } from "../environment.js";
+import { getTvRuntimePerformanceProfile } from "../tvRuntimePerformance.js";
 import {
   isWebOsCompanionServiceAvailable,
   requestWebOsCompanionService
@@ -6,6 +7,7 @@ import {
 
 const WEBOS_SUPABASE_PROXY_REQUEST_TIMEOUT_MS = 22000;
 const NULL_BODY_RESPONSE_STATUSES = new Set([204, 205, 304]);
+let directSupabaseFetchFailed = false;
 
 function withTimeout(promise, timeoutMs, signal = null) {
   return new Promise((resolve, reject) => {
@@ -169,8 +171,28 @@ function buildResponseFromServicePayload(payload) {
   };
 }
 
+/**
+ * Whether this backend request should be sent directly from the browser.
+ * Legacy webOS browsers need the companion service proxy. Current ones reach
+ * the backend directly; the proxy would add the service's multi-second launch
+ * to the first requests after app start. One direct network failure moves the
+ * rest of the session back to the proxy.
+ */
+export function shouldFetchWebOsSupabaseDirectly(url) {
+  return Boolean(
+    Environment.isWebOS() &&
+    isProxyableSupabaseUrl(url) &&
+    !directSupabaseFetchFailed &&
+    !getTvRuntimePerformanceProfile().isLegacyTvRuntime
+  );
+}
+
+export function markWebOsDirectSupabaseFetchFailed() {
+  directSupabaseFetchFailed = true;
+}
+
 export async function fetchViaWebOsSupabaseProxy(url, fetchOptions = {}) {
-  if (!isProxyableSupabaseUrl(url)) {
+  if (!isProxyableSupabaseUrl(url) || shouldFetchWebOsSupabaseDirectly(url)) {
     return null;
   }
   const body = serializeBody(fetchOptions.body);

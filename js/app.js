@@ -255,16 +255,24 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
       console.warn("Profile member access refresh failed", error);
     });
     I18n.apply();
-    void preloadStreamBadgeImages().catch((error) => {
-      console.warn("Stream badge image prerender failed", error);
-    });
   }
   const experienceRoute = activeProfile ? await resolveExperienceRoute(activeProfile.id) : "home";
   void StartupSyncService.requestSyncNow({
     notifyPullCompleted: ["home", "plugins"].includes(experienceRoute)
-  }).catch((error) => {
-    console.warn("Profile background sync failed", error);
-  });
+  })
+    .catch((error) => {
+      console.warn("Profile background sync failed", error);
+    })
+    .then(() => {
+      // The badge prerender boots the webOS media runtime; keep it after sync.
+      if (activeProfile) {
+        return preloadStreamBadgeImages();
+      }
+      return null;
+    })
+    .catch((error) => {
+      console.warn("Stream badge image prerender failed", error);
+    });
   const resumeRoute =
     restoreWebOsRoute && typeof Router.consumeWebOsResumeRoute === "function"
       ? Router.consumeWebOsResumeRoute()

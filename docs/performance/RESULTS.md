@@ -35,9 +35,24 @@ Fresh final-build test: selected a real Abbott Elementary S2E16 1080p source wit
 
 Final playback left paused, subtitle menu closed, and no temporary CSS overrides, detached rows, or active timing probes remained. Reduced-motion visibility smoke checks passed for parental overlays, loading identity/spokes, stream panel, library picker, and profile PIN opening layer.
 
+## Startup
+
+Measured on the same TV by reloading the app under CDP after the webOS companion service had been idle for at least 60 seconds, so its Node process had to launch again. One sample per build; the reload excludes webOS's own app-process launch.
+
+Before the change, `routeAfterAuthentication` waited for `sync_pull_profile_locks`. On webOS every Supabase request went through the companion service, whose `supabaseProxy` command first booted the 5.2 MB media runtime. The first account requests therefore took 6.3–7.4 s, while the page sat idle with no CPU or network activity. A direct request from the app page returned 200 in 87–105 ms.
+
+| Build                                                | Lock request | Home route opens |
+| ---------------------------------------------------- | ------------ | ---------------- |
+| Original (two samples)                               | 6.3 s        | 7.3–8.4 s        |
+| Service proxies in-process (no media runtime)        | 4.4 s        | 6.0 s            |
+| Plus launch warm-up and deferred badge prerender     | 3.8 s        | 5.7 s            |
+| Direct backend requests on non-legacy webOS (2 runs) | 0.13 s       | 1.8–2.3 s        |
+
+In the original sample, the focused Continue Watching row appeared at 9.5 s. The later samples did not record that marker. After the change, the startup account sync (profiles, settings, collections, library, addons) finished about 6 s earlier. The remaining Home cost is CPU: catalog rows render and re-render for several seconds after the route opens.
+
 ## Checks and remaining limits
 
-- 27 available unit/regression tests pass, including first-source playback while a slow source remains pending, late-source focus preservation, and bounded card rendering.
+- 34 unit/regression tests pass, including first-source playback while a slow source remains pending, late-source focus preservation, and bounded card rendering.
 - Repository lint, production build, webOS packaging, and plugin forwarding/Node 8 contract check pass.
 - The npm test wrapper references two absent `tests/test-plugin-*.mjs` files; the available tests and forwarding check were invoked directly.
 - Some startup, resume, and player transitions still take hundreds of milliseconds or longer. Remote resume lookup and provider/network resolution remain asynchronous dependencies; this change does not skip resume state to conceal their latency.

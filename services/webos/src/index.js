@@ -6,7 +6,7 @@ var PORT_CANDIDATES = serverHost.PORT_CANDIDATES;
 var bootLocalRuntime = serverHost.bootLocalRuntime;
 var probeLocalServer = serverHost.probeLocalServer;
 var requestLocalHttp = serverHost.requestLocalHttp;
-var SUPABASE_PROXY_PATH = require("./supabaseProxy").SUPABASE_PROXY_PATH;
+var runSupabaseProxyRequest = require("./supabaseProxy").runSupabaseProxyRequest;
 var bitmapSubtitles = require("./bitmapSubtitles");
 var getBitmapSubtitleWindow = bitmapSubtitles.getBitmapSubtitleWindow;
 var getEmbeddedTextSubtitleWindow = bitmapSubtitles.getEmbeddedTextSubtitleWindow;
@@ -196,46 +196,20 @@ function registerSafeHttpProxyCommand(commandName) {
       headers: payload.headers,
       body: typeof payload.body === "string" ? payload.body : null
     };
-    requestReadyLocalHttp(
-      SUPABASE_PROXY_PATH,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(proxyRequest),
-        timeoutMs: 20000,
-        maxBodyBytes: 10 * 1024 * 1024,
-        encoding: null
-      },
-      function (error, result) {
-        if (error) {
-          respond(
-            message,
-            buildErrorPayload(error, {
-              proxiedPath: SUPABASE_PROXY_PATH
-            })
-          );
-          return;
-        }
-
-        respond(
-          message,
-          Object.assign(buildBasePayload(), {
-            supabaseProxy: true,
-            statusCode: result ? result.statusCode || 0 : 0,
-            headers: result ? result.headers || {} : {},
-            body:
-              result && Buffer.isBuffer(result.body)
-                ? result.body.toString("base64")
-                : result
-                  ? result.body || ""
-                  : "",
-            bodyEncoding: result && Buffer.isBuffer(result.body) ? "base64" : "utf8"
-          })
-        );
-      }
-    );
+    // In-process: the media server takes seconds to boot on TVs.
+    runSupabaseProxyRequest(proxyRequest, function (result) {
+      respond(
+        message,
+        Object.assign(buildBasePayload(), {
+          returnValue: true,
+          supabaseProxy: true,
+          statusCode: result.statusCode || 0,
+          headers: result.headers || {},
+          body: Buffer.isBuffer(result.body) ? result.body.toString("base64") : result.body || "",
+          bodyEncoding: Buffer.isBuffer(result.body) ? "base64" : "utf8"
+        })
+      );
+    });
   });
 }
 
@@ -1506,6 +1480,9 @@ function registerEngineFsDiagnosticCommand() {
 // runtime performs EngineFS and hardware capability setup during require(); if
 // that work happens first, LS2 can report this service as not running while
 // the process is still booting on slower TVs.
+service.register("warmup", function (message) {
+  respond(message, { returnValue: true, serviceId: SERVICE_ID });
+});
 registerCommand("ping", false);
 registerCommand("status", true);
 registerSafeHttpProxyCommand("supabaseProxy");

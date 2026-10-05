@@ -10,6 +10,7 @@
   }
 
   var OVERLAY_ID = "nuvio-boot-error";
+  var WEBOS_COMPANION_SERVICE_WARMUP_URI = "luna://space.nuvio.webos.service/warmup";
   var COMPATIBILITY_INFO_TIMEOUT_MS = 1500;
   var DEFAULT_COMPATIBILITY_MESSAGES = {
     unsupported_device_title: "TV not supported",
@@ -797,6 +798,25 @@
   };
 
   window.NuvioBootGuard = guard;
+
+  // Legacy webOS proxies startup requests through the slow-to-boot service.
+  (function warmWebOsCompanionService() {
+    if (
+      typeof window.PalmServiceBridge !== "function" ||
+      !(window.PalmSystem || window.webOSSystem) ||
+      parseChromeMajor() >= 85
+    ) {
+      return;
+    }
+    try {
+      var bridge = new window.PalmServiceBridge();
+      bridge.onservicecallback = function onWarmupResponse() {
+        window.__nuvioCompanionServiceWarmup = null;
+      };
+      window.__nuvioCompanionServiceWarmup = bridge;
+      bridge.call(WEBOS_COMPANION_SERVICE_WARMUP_URI, "{}");
+    } catch (ignored) {}
+  })();
 
   var previousOnError = window.onerror;
   window.onerror = function onBootError(message, source, line, column, error) {

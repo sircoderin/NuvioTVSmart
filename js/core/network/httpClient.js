@@ -1,6 +1,10 @@
 import { SessionStore } from "../storage/sessionStore.js";
 import { AuthManager } from "../auth/authManager.js";
-import { fetchViaWebOsSupabaseProxy } from "../../platform/webos/webosSupabaseProxy.js";
+import {
+  fetchViaWebOsSupabaseProxy,
+  markWebOsDirectSupabaseFetchFailed,
+  shouldFetchWebOsSupabaseDirectly
+} from "../../platform/webos/webosSupabaseProxy.js";
 import { withRequestTimeout } from "./requestTimeout.js";
 
 const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 60_000;
@@ -99,11 +103,28 @@ function waitWithAbort(delayMs, signal) {
   });
 }
 
+async function fetchBackend(url, fetchInit, safeRetry) {
+  const direct = shouldFetchWebOsSupabaseDirectly(url);
+  try {
+    return (await fetchViaWebOsSupabaseProxy(url, fetchInit)) || (await fetch(url, fetchInit));
+  } catch (error) {
+    if (!direct || error?.name === "AbortError") {
+      throw error;
+    }
+    markWebOsDirectSupabaseFetchFailed();
+    // A failed write may have reached the server; only replay safe reads.
+    const proxied = safeRetry ? await fetchViaWebOsSupabaseProxy(url, fetchInit) : null;
+    if (!proxied) {
+      throw error;
+    }
+    return proxied;
+  }
+}
+
 async function fetchWithBackendRetry(url, fetchInit, method) {
   const safeRetry = isSafeBackendRetryRequest(url, method);
   await waitWithAbort(Math.max(0, backendCooldownUntilMs - Date.now()), fetchInit.signal);
-  let response =
-    (await fetchViaWebOsSupabaseProxy(url, fetchInit)) || (await fetch(url, fetchInit));
+  let response = await fetchBackend(url, fetchInit, safeRetry);
   recordBackendCooldown(response);
 
   if (safeRetry && [429, 503].includes(Number(response?.status || 0))) {
@@ -117,7 +138,7 @@ async function fetchWithBackendRetry(url, fetchInit, method) {
       await waitWithAbort(delayMs, fetchInit.signal);
     }
     await waitWithAbort(Math.max(0, backendCooldownUntilMs - Date.now()), fetchInit.signal);
-    response = (await fetchViaWebOsSupabaseProxy(url, fetchInit)) || (await fetch(url, fetchInit));
+    response = await fetchBackend(url, fetchInit, safeRetry);
     recordBackendCooldown(response);
   }
   return response;

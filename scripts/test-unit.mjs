@@ -18,8 +18,12 @@ async function findTests(directory) {
   );
   return nested.flat();
 }
-const tests = (await findTests(path.join(root, "js"))).sort();
-if (!tests.length) throw new Error("No unit tests found in js/.");
+const tests = (
+  await Promise.all(["js", "services"].map((directory) => findTests(path.join(root, directory))))
+)
+  .flat()
+  .sort();
+if (!tests.length) throw new Error("No unit tests found in js/ or services/.");
 const child = spawn(process.execPath, ["--test", ...tests], { cwd: root, stdio: "inherit" });
 child.on("error", (error) => {
   console.error(error.message);

@@ -7,6 +7,11 @@
       "description": "Starts the local media runtime on demand and exposes health checks",
       "commands": [
         {
+          "name": "warmup",
+          "description": "Start the service process at app launch without the media runtime",
+          "public": true
+        },
+        {
           "name": "ping",
           "description": "Start the local runtime on demand and report service health",
           "public": true

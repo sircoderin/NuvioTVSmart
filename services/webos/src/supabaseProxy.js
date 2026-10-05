@@ -268,6 +268,44 @@ function proxySupabaseRequest(payload, redirectsLeft, callback, redirectChain) {
   request.end();
 }
 
+function runSupabaseProxyRequest(payload, callback) {
+  var requestBytes = 0;
+  try {
+    requestBytes = Buffer.byteLength(JSON.stringify(payload || {}));
+  } catch (_) {
+    requestBytes = MAX_REQUEST_BYTES + 1;
+  }
+  if (requestBytes > MAX_REQUEST_BYTES) {
+    callback({
+      statusCode: 400,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: "Proxy request body too large"
+    });
+    return;
+  }
+  proxySupabaseRequest(payload || {}, MAX_REDIRECTS, function (proxyError, proxied) {
+    if (proxyError) {
+      callback({
+        statusCode: 502,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: proxyError.message || "Supabase proxy request failed"
+      });
+      return;
+    }
+    var responseHeaders = Object.assign({}, proxied.headers || {});
+    Object.keys(responseHeaders).forEach(function (name) {
+      if (responseHeaders[name] === "") {
+        delete responseHeaders[name];
+      }
+    });
+    callback({
+      statusCode: proxied.statusCode || 502,
+      headers: responseHeaders,
+      body: proxied.body
+    });
+  });
+}
+
 function createSupabaseProxyHandler() {
   return function supabaseProxyHandler(req, res) {
     var parsedRequest = null;
@@ -309,24 +347,8 @@ function createSupabaseProxyHandler() {
         return;
       }
 
-      proxySupabaseRequest(payload || {}, MAX_REDIRECTS, function (proxyError, proxied) {
-        if (proxyError) {
-          send(
-            res,
-            502,
-            { "Content-Type": "text/plain; charset=utf-8" },
-            proxyError.message || "Supabase proxy request failed"
-          );
-          return;
-        }
-
-        var responseHeaders = Object.assign({}, proxied.headers || {});
-        Object.keys(responseHeaders).forEach(function (name) {
-          if (responseHeaders[name] === "") {
-            delete responseHeaders[name];
-          }
-        });
-        send(res, proxied.statusCode || 502, responseHeaders, proxied.body);
+      runSupabaseProxyRequest(payload, function (result) {
+        send(res, result.statusCode, result.headers, result.body);
       });
     });
 
@@ -337,5 +359,6 @@ function createSupabaseProxyHandler() {
 module.exports = {
   SUPABASE_PROXY_PATH: SUPABASE_PROXY_PATH,
   createSupabaseProxyHandler: createSupabaseProxyHandler,
+  runSupabaseProxyRequest: runSupabaseProxyRequest,
   validateTargetUrl: validateTargetUrl
 };

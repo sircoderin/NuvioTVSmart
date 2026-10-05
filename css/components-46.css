@@ -183,6 +183,12 @@
   flex: 0 0 auto;
 }
 
+.player-sources-header,
+.player-source-current-meta,
+.player-sources-filters {
+  flex: 0 0 auto;
+}
+
 .player-episode-stream-list,
 .player-sources-list {
   flex: 1 1 auto;

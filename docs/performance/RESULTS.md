@@ -64,6 +64,10 @@ Moving down Home with all 70 rows loaded (25 Down presses, 400 ms apart, 20 s af
 
 Loading Home catalogs by range (first rows plus five rows past focus) on the same TV, with all 70 rows enabled, two fresh launches: startup sent 5 catalog requests instead of 70, the worst stall fell from 2.7 s to 0.8–1.0 s, long tasks in the first 30 s from 6.2–7.7 s to 3.5–3.7 s, Home render CPU from 1.7–2.1 s to 0.5–0.6 s, and the last long task ended at 7.3–11.9 s instead of 12.2–18.5 s. First posters appeared at 3.3–3.6 s (3.3–4.5 s before). The comparison runs predate the row-track layer change, which affects browsing rather than startup. Moving down with 25 Down presses (three runs), loading kept ahead of focus: focus reached rows 23–25 while 21–27 catalogs were requested. Median key-to-next-frame was 39–67 ms, p95 143–426 ms, and the worst long task 1.8–2.0 s, against 51–59 ms, 165–2,637 ms and 1.8–3.3 s with every row loaded. A prototype that also mounted a skeleton row for every catalog was slower: 2.1 s worst startup stall and 934 ms p95 while browsing.
 
+## Returning to Home
+
+On every return from another screen, the original Home ran a full background refresh. It refreshed addon manifests, rebuilt every row and re-rendered Home. An earlier fork change skipped it only after Settings and profile selection. The rebuilt rows never contained newer catalog data, because `catalogRepository` caches catalog responses for the session. With the full refresh limited to changes in Home's inputs, returning from Library and from Search (one run each, fork build, Home loaded) sent no addon manifest requests and made no DOM changes under `#home` in the 8 s after the return. The Continue Watching refresh sent 5 requests. No timing was taken for the original return path.
+
 ## Player episode panel
 
 Measured on the same TV with CDP key events: open the panel, move six episodes down, press Enter on an uncached episode (199 streams from all sources), then move through the stream list. One sample per build. The baseline video was paused; the new build was measured while it played, and the viewer pressed some extra keys during that run.

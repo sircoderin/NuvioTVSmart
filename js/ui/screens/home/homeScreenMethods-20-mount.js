@@ -157,8 +157,11 @@ export function createHomeScreenMethods20() {
         this.scheduleHomeLazyImageHydration();
         this.scheduleReturnFocusRestore();
         this.ensureStartupSyncSubscription();
-        if (this.canSkipHomeResumeRefresh()) {
+        if (this.canResumeHomeWithoutReload()) {
           logHomePerf("backgroundRefreshSkipped", { reason: "route-resume" });
+          void this.refreshHomeContinueWatchingAfterSync().catch((error) => {
+            console.warn("Home Continue Watching refresh failed", error);
+          });
           void this.refreshHomeCatalogsIfStale({ reason: "route-resume" }).catch((error) => {
             console.warn("Home stale-catalog refresh failed", error);
           });

@@ -98,8 +98,6 @@ export function createHomeScreenMethods04() {
     HERO_ROTATE_FIRST_DELAY_MS,
     HERO_ROTATE_INTERVAL_MS,
     HOME_CATALOG_REFRESH_TTL_MS,
-    HOME_RESUME_REFRESH_MAX_AGE_MS,
-    HOME_RESUME_PASSIVE_ROUTES,
     HomeCatalogStore,
     HOME_STABLE_GATE_TIMEOUT_MS,
     logHomePerf,
@@ -527,23 +525,13 @@ export function createHomeScreenMethods04() {
     },
     rememberHomeResumeInputs() {
       this.homeResumeSignature = this.buildHomeResumeSignature();
-      this.lastHomeFullLoadAtMs = Date.now();
     },
     /**
-     * A full background load on every return costs several Home renders on a
-     * constrained TV. Skip it when only passive routes were shown, the rendered
-     * inputs are unchanged, and the last full load is recent.
+     * Other screens cannot change catalog rows; they can change watch state,
+     * which the Continue Watching refresh covers. A full reload is needed only
+     * when the inputs Home is built from changed.
      */
-    canSkipHomeResumeRefresh() {
-      const visitedRoutes = Router.getRoutesVisitedSince?.(this.homeLeftRouteSequence);
-      if (!Array.isArray(visitedRoutes) || visitedRoutes.some((route) => !HOME_RESUME_PASSIVE_ROUTES.includes(route))) {
-        return false;
-      }
-      const lastLoadAtMs = Number(this.lastHomeFullLoadAtMs || 0);
-      const ageMs = Date.now() - lastLoadAtMs;
-      if (!lastLoadAtMs || ageMs < 0 || ageMs >= HOME_RESUME_REFRESH_MAX_AGE_MS) {
-        return false;
-      }
+    canResumeHomeWithoutReload() {
       return Boolean(this.homeResumeSignature) && this.buildHomeResumeSignature() === this.homeResumeSignature;
     },
     ensureAddonManifestSubscriptions() {

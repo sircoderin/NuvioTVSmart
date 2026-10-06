@@ -1,11 +1,10 @@
 import * as internals from "./homeScreenContext.js";
 
 export function createHomeScreenMethods30() {
-  const { ScreenUtils, Platform, Router } = internals;
+  const { ScreenUtils, Platform } = internals;
 
   return {
     cleanup() {
-      this.homeLeftRouteSequence = Router.getRouteVisitSequence?.() ?? null;
       if (this.unsubscribeStartupSyncPullCompleted) {
         this.unsubscribeStartupSyncPullCompleted();
         this.unsubscribeStartupSyncPullCompleted = null;

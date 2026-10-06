@@ -46,16 +46,6 @@ export const HOME_STABLE_GATE_TIMEOUT_MS = 5000;
 export const HOME_ROW_TIMEOUT_MS = 3500;
 export const HOME_ADDON_MANIFEST_TIMEOUT_MS = 3500;
 export const HOME_CATALOG_REFRESH_TTL_MS = 15 * 60 * 1000;
-// A preserved Home skips its full reload on return only when every route shown
-// meanwhile cannot change watch state, and its data is younger than this.
-export const HOME_RESUME_REFRESH_MAX_AGE_MS = 5 * 60 * 1000;
-export const HOME_RESUME_PASSIVE_ROUTES = Object.freeze([
-  "home",
-  "settings",
-  "profileSelection",
-  "licensesAttributions",
-  "supportersContributors"
-]);
 export const HOME_ROW_RETRY_TIMEOUT_MS = 12000;
 export const HOME_BACKGROUND_RENDER_DELAY_MS = 120;
 export const HOME_BACKGROUND_RENDER_DELAY_LEGACY_MS = 180;

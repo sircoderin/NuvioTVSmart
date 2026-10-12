@@ -89,3 +89,7 @@ Before the change, every key rebuilt the whole panel. In the stream view that me
 - The npm test wrapper references two absent `tests/test-plugin-*.mjs` files; the available tests and forwarding check were invoked directly.
 - Some startup, resume, and player transitions still take hundreds of milliseconds or longer. Remote resume lookup and provider/network resolution remain asynchronous dependencies; this change does not skip resume state to conceal their latency.
 - Stremio's public stremio-web repository was inspected for architectural guidance. It is not the official LG app, and no LG-specific implementation equivalence is claimed.
+
+## October 2026 issue follow-up checkpoint
+
+See [ISSUES-1055-1059.md](ISSUES-1055-1059.md) for what was tried, targeted upstream 1.2.4 measurements, the final Home candidate check and limitations. Neither experiment demonstrated a reliable solution; the experimental checkout was retired without merging its code. These results are separate from the fork benchmarks above. The TV is back on the asset-verified merged performance-fork 1.2.4, with configuration preserved, playback paused and experiment probes removed.

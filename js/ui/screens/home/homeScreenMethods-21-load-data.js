@@ -5,6 +5,7 @@ export function createHomeScreenMethods21() {
   const {
     Router,
     addonRepository,
+    catalogRepository,
     watchProgressRepository,
     watchedItemsRepository,
     LayoutPreferences,
@@ -42,6 +43,7 @@ export function createHomeScreenMethods21() {
     async loadData({ background = false, preserveReturnState = false, refreshManifests = true } = {}) {
       const loadStart = HOME_PERF_DEBUG ? homePerfNow() : 0;
       const token = this.homeLoadToken;
+      this.loadedHomeRouteInputSignature = "";
       const preserveHomeReturnState = Boolean(background && preserveReturnState);
       const preservedHeroItem = preserveHomeReturnState ? this.heroItem : null;
       const preservedHeroIdentity = preserveHomeReturnState ? buildHeroIdentity(this.heroItem) : "";
@@ -91,6 +93,24 @@ export function createHomeScreenMethods21() {
       // Continue Watching is reconciled fire-and-forget in the block below, so a
       // slow addon or Trakt call never blocks catalog rows. The section paints
       // from the cached snapshot when available, or raw progress before enrichment.
+
+      startHomeContinueWatchingLoad.call(this, {
+        token,
+        watchedItemsPromise,
+        progressAllPromise,
+        recentProgressPromise,
+        progressErrors,
+        continueWatchingSourceKey,
+        continueWatchingSource,
+        startupSyncPendingAtLoad,
+        startupSyncPullPromiseAtLoad,
+        nextUpSeedOptions,
+        prefs,
+        background,
+        preserveHomeReturnState,
+        suppressContinueWatchingLoading,
+        hasExistingContinueWatchingDisplay
+      });
 
       const addons = refreshManifests
         ? await addonRepository.getInstalledAddons({
@@ -159,6 +179,7 @@ export function createHomeScreenMethods21() {
         })),
         { orderedKeys: orderedCatalogKeys, disabledKeys: HomeCatalogStore.get().disabled || [] }
       );
+      const routeInputSignature = this.buildHomeRouteInputSignature(addons);
 
       // Home requests catalogs in display order as far as the user can reach:
       // the first rows now, and more as focus or scrolling nears the end.
@@ -175,7 +196,7 @@ export function createHomeScreenMethods21() {
       this.homeCatalogRequestedKeys = new Set([...initialKeys, ...deferredDescriptors.map((catalog) => catalog.homeCatalogKey)]);
 
       const progressiveInitialRows = new Map();
-      const initialRows = await this.fetchCatalogRows(initialDescriptors, {
+      const initialRowsPromise = this.fetchCatalogRows(initialDescriptors, {
         allowLoading: true,
         onRow: (row) => {
           if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
@@ -199,6 +220,32 @@ export function createHomeScreenMethods21() {
           this.maybeStartPendingHomeBackgroundRefresh();
         }
       });
+      // Start the visible rows first. Overlap one deferred batch only on a
+      // foreground load where the runtime can afford the extra requests.
+      // Keep the actual promises: the repository caches completed results only,
+      // so a second request while prefetch is pending would duplicate the work.
+      const prefetchedResults = new Map();
+      if (!background && !this.isPerformanceConstrained() && !this.isLegacyTvRuntime()) {
+        const prefetchCount = Math.min(8, Math.max(0, this.getDeferredCatalogBatchSize()));
+        deferredDescriptors.slice(0, prefetchCount).forEach((catalog) => {
+          prefetchedResults.set(
+            catalog,
+            catalogRepository.getCatalog({
+              addonBaseUrl: catalog.addonBaseUrl,
+              addonId: catalog.addonId,
+              addonName: catalog.addonName,
+              catalogId: catalog.catalogId,
+              catalogName: catalog.catalogName,
+              type: catalog.type,
+              skip: 0,
+              skipStep: catalog.skipStep,
+              supportsSkip: catalog.supportsSkip !== false
+            })
+          );
+        });
+        void Promise.allSettled(prefetchedResults.values());
+      }
+      const initialRows = await initialRowsPromise;
       if (token !== this.homeLoadToken) {
         return;
       }
@@ -255,7 +302,7 @@ export function createHomeScreenMethods21() {
         if (matchedHeroIndex >= 0) {
           this.heroIndex = matchedHeroIndex;
         }
-      } else {
+      } else if (!this.hasUserInteractedSinceHomePaint) {
         this.heroIndex = 0;
         this.heroItem = this.pickInitialHero();
       }
@@ -263,6 +310,8 @@ export function createHomeScreenMethods21() {
       this.loadedWatchProgressSourceKey = watchProgressRepository.getContinueWatchingSourceKey();
       this.releaseInitialHomeLoading();
       this.hasLoadedOnce = true;
+      this.loadedHomeRouteInputSignature = routeInputSignature;
+      this.rememberHomeResumeInputs();
       this.render();
       this.maybeStartPendingHomeBackgroundRefresh();
       logHomePerf("loadData", {
@@ -285,7 +334,7 @@ export function createHomeScreenMethods21() {
         }
       });
 
-      void this.loadHomeCatalogRange(deferredDescriptors, { token });
+      void this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults });
       this.ensureHomeCatalogWindowForNode(this.getCurrentFocusedNode());
 
       if (this.layoutMode !== "modern") {
@@ -301,26 +350,9 @@ export function createHomeScreenMethods21() {
           });
       }
 
-      startHomeContinueWatchingLoad.call(this, {
-        token,
-        watchedItemsPromise,
-        progressAllPromise,
-        recentProgressPromise,
-        progressErrors,
-        continueWatchingSourceKey,
-        continueWatchingSource,
-        startupSyncPendingAtLoad,
-        startupSyncPullPromiseAtLoad,
-        nextUpSeedOptions,
-        prefs,
-        background,
-        preserveHomeReturnState,
-        suppressContinueWatchingLoading,
-        hasExistingContinueWatchingDisplay
-      });
       this.retryPendingCatalogRows();
     },
-    loadHomeCatalogRange(descriptors = [], { token = this.homeLoadToken } = {}) {
+    loadHomeCatalogRange(descriptors = [], { token = this.homeLoadToken, prefetchedResults = null } = {}) {
       if (!descriptors.length) {
         return Promise.resolve([]);
       }
@@ -348,6 +380,7 @@ export function createHomeScreenMethods21() {
       // delay the next catalogs.
       return this.fetchCatalogRows(descriptors, {
         allowLoading: true,
+        prefetchedResults,
         shouldContinue: () => token === this.homeLoadToken,
         onRow: (row) => {
           if (token === this.homeLoadToken && Router.getCurrent() === "home") {

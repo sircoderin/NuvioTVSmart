@@ -21,10 +21,16 @@
 /* Some components use keyframes to reveal their content. Set their final
    state explicitly so disabling motion never hides a menu or status message. */
 .performance-constrained .player-loading-identity,
-.performance-constrained .nuvio-loading-indicator-spoke,
+.performance-constrained .nuvio-loading-indicator-arc,
 .performance-constrained .stream-route-skeleton-line {
   animation: none !important;
   opacity: 1;
+}
+
+/* SVG loaders remain visibly partial when their dash animation is disabled. */
+.performance-constrained .nuvio-loading-indicator-arc {
+  stroke-dasharray: 480 227;
+  stroke-dashoffset: 0;
 }
 
 .performance-constrained .player-parental-guide,

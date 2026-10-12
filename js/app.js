@@ -174,6 +174,12 @@ function applyPerformanceMode() {
   const constrained = tvRuntime.isPerformanceConstrained || isLowEndDevice();
   const webOsMajorVersion = Platform.isWebOS() ? Number(Platform.getWebOsMajorVersion() || 0) : 0;
   const legacyWebOs = Platform.isWebOS() && tvRuntime.isLegacyTvRuntime;
+  // Chromium 87 webOS also stalls when every Modern Home track is promoted
+  // to a compositor layer. Keep this separate from API and motion policies.
+  const unpromotedHomeTracks =
+    Platform.isWebOS() &&
+    tvRuntime.chromiumMajorVersion > 0 &&
+    tvRuntime.chromiumMajorVersion <= 87;
   const legacyWebOs38 = Platform.isWebOS() && webOsMajorVersion > 0 && webOsMajorVersion <= 3;
   // Keep the Tizen class as a platform-layout fallback; performance gating is
   // handled exclusively by the runtime profile above.
@@ -189,6 +195,8 @@ function applyPerformanceMode() {
   document.body.classList.toggle("modern-sidebar-blur-capable", modernSidebarBlurCapable);
   document.documentElement.classList.toggle("legacy-webos", legacyWebOs);
   document.body.classList.toggle("legacy-webos", legacyWebOs);
+  document.documentElement.classList.toggle("webos-unpromoted-home-tracks", unpromotedHomeTracks);
+  document.body.classList.toggle("webos-unpromoted-home-tracks", unpromotedHomeTracks);
   document.documentElement.classList.toggle("legacy-webos38", legacyWebOs38);
   document.body.classList.toggle("legacy-webos38", legacyWebOs38);
   document.documentElement.classList.toggle("legacy-tizen", legacyTizen);
@@ -198,6 +206,14 @@ function applyPerformanceMode() {
       document.body.classList.toggle(className, rootClasses.contains(className));
     }
   );
+}
+
+// Settings exposes a performance mode (auto/full/reduced). Re-apply the
+// root/body classes when the user changes it (see tvRuntimePerformance.js).
+if (typeof globalThis.addEventListener === "function") {
+  globalThis.addEventListener("nuvio:performance-mode", () => {
+    applyPerformanceMode();
+  });
 }
 
 function isAddonRemoteMode() {
@@ -477,6 +493,21 @@ function setupProviderCredentialForegroundLifecycle() {
   window.addEventListener("focus", requestAfterBackground);
 }
 
+function setupTizenPlaybackLifecycle() {
+  if (!Platform.isTizen()) return;
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden" || Router.getCurrent() !== "player") return;
+
+    // Samsung requires hidden playback to follow the player exit path.
+    // Do not consume a regular Back: it can merely dismiss an overlay and
+    // leave playback running. Reuse the existing stop/progress/return path.
+    const screen = Router.getCurrentScreen();
+    screen?.cancelSourceLoad?.();
+    screen?.navigateBackToStreamScreen?.();
+  });
+}
+
 function setupPluginRuntimeLifecycle() {
   const cancel = () => PluginRuntime.cancelAll();
   document.addEventListener("visibilitychange", () => {
@@ -557,6 +588,7 @@ async function bootstrapApp() {
 
   FocusEngine.init();
   setupProviderCredentialForegroundLifecycle();
+  setupTizenPlaybackLifecycle();
   setupPluginRuntimeLifecycle();
   setupWebOsAppLifecycle();
 

@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 import * as internals from "./settingsScreenContext.js";
+import { getTvPerformanceMode, getTvRuntimePerformanceProfile } from "../../../platform/tvRuntimePerformance.js";
 
 export function renderLayoutMarkup(model) {
   const { isModernSidebarBlurAvailable, HOME_LAYOUT_OPTIONS, SECTION_META, t } = internals;
@@ -114,6 +115,9 @@ export function renderLayoutMarkup(model) {
                   })
                 : ""
             }
+            ${
+              !isModernLayout
+                ? `
             ${this.renderToggleRow({
               focusKey: "layout:heroSection",
               title: t("settings.layout.heroSection.title"),
@@ -121,6 +125,9 @@ export function renderLayoutMarkup(model) {
               checked: Boolean(model.layout.heroSectionEnabled)
             })}
             ${model.layout.heroSectionEnabled ? this.renderActionRow({ focusKey: "layout:heroCatalogs", title: t("layout_hero_catalog", {}, "Hero catalogs"), subtitle: t("layout_hero_catalog_sub", {}, "Choose catalogs used by the Hero section"), value: model.layout.heroCatalogKeys?.length ? String(model.layout.heroCatalogKeys.length) : t("common_all", {}, "All") }) : ""}
+            `
+                : ""
+            }
             ${this.renderActionRow({
               focusKey: "layout:searchDiscover",
               title: t("layout_discover_location_action", {}, "Discover location"),
@@ -410,6 +417,16 @@ export function renderLayoutMarkup(model) {
                 bodyHtml: focusedPosterBody
               })}
               ${this.renderCollapsibleRow({ focusKey: "layout:toggle:cardAppearance", title: t("settings_card_depth_title", {}, "Card appearance"), subtitle: t("settings_card_depth_description", {}, "Size, corners and depth surfaces"), expanded: Boolean(expanded.cardAppearance), bodyHtml: cardAppearanceBody })}
+              ${
+                getTvRuntimePerformanceProfile().isTvRuntime
+                  ? this.renderActionRow({
+                      focusKey: "layout:performanceMode",
+                      title: t("layout_animations_effects", {}, "Animations & effects"),
+                      subtitle: t("settings.performance.mode.subtitle", {}, "Reduce visual effects if the TV feels slow"),
+                      value: t(`layout_perf_${getTvPerformanceMode()}`, {}, getTvPerformanceMode())
+                    })
+                  : ""
+              }
             </div>
           </div>
         `;

@@ -369,18 +369,9 @@ async function fetchBestRemotePayload(profileId, localPayload) {
 
 function applyPayload(profileId, payload = {}, localPayload = null) {
   const { order, disabled, customTitles } = homeCatalogPrefsFromPayload(payload, localPayload);
-
   HomeCatalogSettingsSyncService.syncingFromRemoteProfiles.add(resolveProfileId(profileId));
   try {
-    HomeCatalogStore.setForProfile(
-      profileId,
-      {
-        order,
-        disabled,
-        customTitles
-      },
-      { silentSync: true }
-    );
+    HomeCatalogStore.setForProfile(profileId, { order, disabled, customTitles }, { silentSync: true });
     if (Object.prototype.hasOwnProperty.call(payload, HIDE_UNRELEASED_CONTENT_KEY)) {
       LayoutPreferences.setForProfile(
         profileId,

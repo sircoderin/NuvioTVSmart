@@ -1,5 +1,6 @@
 import { Platform } from "./index.js";
 import { TizenCapabilities } from "./tizen/tizenCapabilities.js";
+import { LocalStore } from "../core/storage/localStore.js";
 
 // The first common TV generation with a modern Chromium baseline is Samsung
 // Tizen 6.5 / Chromium M85 (2022) and LG webOS TV 22 / Chromium M87 (2022).
@@ -10,6 +11,51 @@ export const TV_RUNTIME_PERFORMANCE_THRESHOLDS = Object.freeze({
   modernChromiumMajor: 85,
   constrainedWebOsThroughYear: 2023
 });
+
+// Keep the runtime-based automatic default unless the user explicitly chooses
+// a device-local override. Legacy API compatibility remains independent.
+const TV_PERF_MODE_KEY = "tvPerfMode";
+export const TV_PERF_MODES = Object.freeze(["auto", "reduced", "full"]);
+
+export function getTvPerformanceMode() {
+  try {
+    const raw = String(LocalStore.get(TV_PERF_MODE_KEY, "") || "").toLowerCase();
+    return raw === "reduced" || raw === "full" ? raw : "auto";
+  } catch (_) {
+    return "auto";
+  }
+}
+
+export function setTvPerformanceMode(mode) {
+  const normalized = String(mode || "").toLowerCase();
+  try {
+    if (normalized === "full" || normalized === "reduced") {
+      LocalStore.set(TV_PERF_MODE_KEY, normalized);
+    } else {
+      LocalStore.remove(TV_PERF_MODE_KEY);
+    }
+  } catch (_) {}
+  cachedProfile = null;
+  try {
+    if (typeof globalThis.dispatchEvent === "function" && typeof globalThis.Event === "function") {
+      globalThis.dispatchEvent(new Event("nuvio:performance-mode"));
+    }
+  } catch (_) {}
+  return getTvPerformanceMode();
+}
+
+function resolvePerformanceConstrained(isLegacyTvRuntime) {
+  const mode = getTvPerformanceMode();
+  if (mode === "reduced") {
+    return true;
+  }
+  if (mode === "full") {
+    return false;
+  }
+  // Explicit overrides wrap the fork's measured automatic rendering policy;
+  // they do not change the independently computed legacy API classification.
+  return Boolean(isLegacyTvRuntime);
+}
 
 const WEBOS_RELEASE_YEARS = Object.freeze({
   1: 2014,
@@ -161,11 +207,12 @@ export function getTvRuntimePerformanceProfile({ forceRefresh = false } = {}) {
     tvYearKnown,
     chromiumVersionKnown,
     isLegacyTvRuntime,
-    isPerformanceConstrained:
+    isPerformanceConstrained: resolvePerformanceConstrained(
       isLegacyTvRuntime ||
-      (isWebOS &&
-        tvYearKnown &&
-        tvYear <= TV_RUNTIME_PERFORMANCE_THRESHOLDS.constrainedWebOsThroughYear)
+        (isWebOS &&
+          tvYearKnown &&
+          tvYear <= TV_RUNTIME_PERFORMANCE_THRESHOLDS.constrainedWebOsThroughYear)
+    )
   });
   return cachedProfile;
 }

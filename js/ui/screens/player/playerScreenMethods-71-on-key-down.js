@@ -243,12 +243,12 @@ export function createPlayerScreenMethods71() {
       if (!this.controlsVisible) {
         if (keyCode === 37) {
           this.autoHideControlsAfterSeek = false;
-          this.beginSeekPreview(-1, Boolean(event?.repeat));
+          this.beginSeekPreview(-1, Boolean(event?.repeat), true);
           return;
         }
         if (keyCode === 39) {
           this.autoHideControlsAfterSeek = false;
-          this.beginSeekPreview(1, Boolean(event?.repeat));
+          this.beginSeekPreview(1, Boolean(event?.repeat), true);
           return;
         }
         if (keyCode === 38) {
@@ -293,11 +293,11 @@ export function createPlayerScreenMethods71() {
 
       if (this.controlFocusZone === "progress") {
         if (keyCode === 37) {
-          this.beginSeekPreview(-1, Boolean(event?.repeat));
+          this.beginSeekPreview(-1, Boolean(event?.repeat), true);
           return;
         }
         if (keyCode === 39) {
-          this.beginSeekPreview(1, Boolean(event?.repeat));
+          this.beginSeekPreview(1, Boolean(event?.repeat), true);
           return;
         }
         if (keyCode === 38) {

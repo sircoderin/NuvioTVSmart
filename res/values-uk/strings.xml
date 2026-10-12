@@ -77,4 +77,21 @@
     <string name="unsupported_device_close">Закрити</string>
     <string name="unsupported_device_try_anyway">Усе одно запустити</string>
     <string name="unsupported_device_unavailable">Недоступно</string>
+
+    <string name="player_post_play_because">Тому що ви дивилися %1$s</string>
+    <string name="player_post_play_recommended">Рекомендовано для вас</string>
+    <string name="player_post_play_play">Відтворити</string>
+    <string name="player_post_play_previous_recommendation">Попередня рекомендація</string>
+    <string name="player_post_play_next_recommendation">Наступна рекомендація</string>
+    <string name="player_post_play_return_to_player">Повернутися до програвача</string>
+    <string name="player_post_play_trailer_countdown">Трейлер через %1$d</string>
+    <string name="player_post_play_trailer_playing">Трейлер відтворюється</string>
+    <string name="player_post_play_trailer">Трейлер</string>
+
+    <string name="mdblist_show_on_hero_title">Використовувати оцінки в головному банері</string>
+    <string name="mdblist_show_on_hero_subtitle">Показувати оцінки MDBList у головному банері (Modern і Classic/Grid)</string>
+    <string name="mdblist_rating_order_title">Порядок оцінок</string>
+    <string name="mdblist_rating_order_subtitle">У банері Modern показуються перші 3 увімкнені та доступні оцінки. Використовуйте стрілки, щоб змінити порядок.</string>
+    <string name="cd_move_up">Перемістити вгору</string>
+    <string name="cd_move_down">Перемістити вниз</string>
 </resources>

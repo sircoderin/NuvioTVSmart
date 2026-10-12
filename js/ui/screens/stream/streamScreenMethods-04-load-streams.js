@@ -27,6 +27,8 @@ export function createStreamScreenMethods04() {
       this.streamLoadAbortController?.abort?.();
       const loadAbortController = typeof AbortController === "function" ? new AbortController() : null;
       this.streamLoadAbortController = loadAbortController;
+      // Every load supersedes the previous collector, including runtimes without AbortController.
+      this.loadToken = (this.loadToken || 0) + 1;
       const token = this.loadToken;
       const itemType = normalizeType(this.params?.itemType);
       const videoId = String(this.params?.videoId || this.params?.itemId || "");
@@ -35,10 +37,15 @@ export function createStreamScreenMethods04() {
       this.loading = preserveExistingResults ? false : true;
       this.streamSearchCompleted = false;
       this.error = "";
+      if (this.errorChipTimer) {
+        clearTimeout(this.errorChipTimer);
+        this.errorChipTimer = null;
+      }
       if (!preserveExistingResults) {
         this.streams = [];
         this.addonFilter = "all";
-        this.focusState = { zone: "filter", index: 0 };
+        this.focusState = { zone: "filter", index: 1 };
+        this.streamInitialResultFocusAssigned = false;
         this.listScrollTop = 0;
         this.addonLogoLookup = {};
         this.streamFocusUserMoved = false;
@@ -170,10 +177,12 @@ export function createStreamScreenMethods04() {
         );
         this.streams = sortStreamsByAddonOrder(this.streams, this.sourceChips);
         this.scheduleDebridPreparation();
-        const firstVisibleChunk = this.loading;
-        if (firstVisibleChunk && this.streams.length && this.focusState?.zone !== "card") {
+        if (!preserveExistingResults && this.streams.length && !this.streamFocusUserMoved && !this.streamInitialResultFocusAssigned) {
+          this.streamInitialResultFocusAssigned = true;
           this.focusState = { zone: "card", row: 0, action: "play" };
-        } else if (!firstVisibleChunk && !this.streamFocusUserMoved && this.focusState?.zone === "card") {
+        }
+        const firstVisibleChunk = this.loading;
+        if (!firstVisibleChunk && !this.streamFocusUserMoved && this.focusState?.zone === "card") {
           // Until the user moves, keep the initial focus on the top result so a
           // slower, higher-ranked source takes the first row when it arrives.
           this.focusState = { zone: "card", row: 0, index: 0, action: "play" };
@@ -261,12 +270,16 @@ export function createStreamScreenMethods04() {
         this.streamSearchCompleted = true;
         this.sourceChips = this.sourceChips.map((chip) => (chip.status === "loading" ? { ...chip, status: "error" } : chip));
         this.loading = false;
+        if (!preserveExistingResults && this.streams.length && !this.streamFocusUserMoved && !this.streamInitialResultFocusAssigned) {
+          this.streamInitialResultFocusAssigned = true;
+          this.focusState = { zone: "card", row: 0, action: "play" };
+        }
         if (this.streams.length && this.focusState?.zone === "card") {
           const visibleStreams = this.getFilteredStreams();
           const maxCardIndex = Math.max(0, visibleStreams.length - 1);
           let initialIndex = clamp(Number(this.focusState?.row ?? this.focusState?.index ?? 0), 0, maxCardIndex);
           const preferred = String(this.params?.preferredStreamId || "").trim();
-          if (preferred) {
+          if (preferred && !preserveExistingResults && !this.streamFocusUserMoved) {
             const prefIdx = visibleStreams.findIndex((s) => String(s?.id || "") === preferred);
             if (prefIdx >= 0) {
               initialIndex = prefIdx;
@@ -279,8 +292,8 @@ export function createStreamScreenMethods04() {
             row: rowIndex,
             action: String(this.focusState?.action || "play")
           };
-        } else if (!this.streams.length) {
-          this.focusState = { zone: "filter", index: 0 };
+        } else if (!this.streams.length && !this.streamFocusUserMoved) {
+          this.focusState = { zone: "filter", index: 1 };
         }
         this.requestRender();
         this.scheduleErrorChipCleanup();

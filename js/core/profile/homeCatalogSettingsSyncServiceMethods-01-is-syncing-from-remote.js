@@ -62,12 +62,6 @@ export function createHomeCatalogSettingsSyncServiceMethods01() {
           await this.push(resolvedProfileId);
           return false;
         }
-        if (payloadSignature(remote.payload) === payloadSignature(localPayload)) {
-          if (pullToken) {
-            this.completedInitialPullTokens.add(pullToken);
-          }
-          return false;
-        }
         const changesHome = remotePayloadChangesHome({
           remotePayload: remote.payload,
           localPayload,

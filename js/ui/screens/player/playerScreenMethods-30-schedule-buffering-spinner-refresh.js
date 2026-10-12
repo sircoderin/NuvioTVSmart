@@ -151,6 +151,17 @@ export function createPlayerScreenMethods30() {
         })
       ) {
         if (!this.startupAudioPreferenceApplied) {
+          // A native frame can arrive before webOS publishes audio languages.
+          // Keep the bounded startup match alive until discovery settles or the
+          // gate deadline expires; fallback would otherwise latch the default.
+          if (
+            Environment.isWebOS() &&
+            Number(this.startupAudioGateDeadline || 0) > 0 &&
+            !gateDeadlineExpired &&
+            this.isAudioPreferenceDiscoveryPending()
+          ) {
+            return false;
+          }
           this.applyStartupAudioFallback();
         }
         return Boolean(this.startupAudioPreferenceApplied) && !this.pendingWebOsAudioSelection;
@@ -243,6 +254,21 @@ export function createPlayerScreenMethods30() {
       }
       return Number(PlayerController.video?.currentTime || 0);
     },
+    getPlaybackDisplayCurrentSeconds() {
+      const current = this.getPlaybackCurrentSeconds();
+      const conversion = PlayerController.webOsDtsAudioState;
+      if (conversion?.cancelReload && conversion.reloadPresentation?.position > 0) {
+        return conversion.reloadPresentation.position;
+      }
+      const requested = Number(this.pendingPlaybackRestore?.timeSeconds || 0);
+      if (requested > 0 && current < requested - 0.75) return requested;
+      return current;
+    },
+    getPlaybackDisplayDurationSeconds() {
+      const duration = this.getPlaybackDurationSeconds();
+      if (duration > 0 && Number.isFinite(duration)) return duration;
+      return Number(PlayerController.webOsDtsAudioState?.reloadPresentation?.duration || this.pendingPlaybackRestore?.durationSeconds || 0);
+    },
     getPlaybackDurationSeconds() {
       if (typeof PlayerController.getDurationSeconds === "function") {
         return Number(PlayerController.getDurationSeconds() || 0);
@@ -290,6 +316,8 @@ export function createPlayerScreenMethods30() {
       this.bufferingActive = false;
       this.seekLoadingBaselineSeconds = null;
       this.seekLoadingTargetSeconds = null;
+      this.seekLoadingSettled = false;
+      this.seekLoadingProgressSeconds = null;
       if (hideBuffering && this.hasPresentedPlaybackFrame) {
         this.loadingVisible = false;
       }
@@ -301,8 +329,24 @@ export function createPlayerScreenMethods30() {
       if (!this.seekLoading || this.pendingPlaybackRestore || this.isStartupLoadingVisible()) {
         return false;
       }
-      if (!this.isPlaybackFrameReady()) {
+      if (
+        !this.seekLoadingSettled ||
+        PlayerController.avplaySeekInFlight ||
+        PlayerController.video?.seeking ||
+        !this.isPlaybackFrameReady()
+      ) {
         return false;
+      }
+      const current = Number(this.getPlaybackCurrentSeconds());
+      if (!Number.isFinite(current)) return false;
+      const paused = this.getPlaybackControlPaused();
+      const ended = PlayerController.isPlaybackEnded?.() || PlayerController.video?.ended;
+      if (!paused && !ended) {
+        const previous = this.seekLoadingProgressSeconds;
+        this.seekLoadingProgressSeconds = current;
+        // The seek itself changes currentTime; only subsequent forward clock
+        // movement proves that playback has resumed at the new position.
+        if (previous == null || current - previous <= 0.01 || current - previous >= 1) return false;
       }
       return this.clearSeekLoading({ hideBuffering: true });
     },

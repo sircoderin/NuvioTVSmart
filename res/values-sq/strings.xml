@@ -2993,4 +2993,19 @@
     <string name="unsupported_device_close">Mbyll</string>
     <string name="unsupported_device_try_anyway">Provo gjithsesi</string>
     <string name="unsupported_device_unavailable">E padisponueshme</string>
+
+    <string name="player_post_play_because">Sepse shikuat %1$s</string>
+    <string name="player_post_play_recommended">Rekomanduar për ju</string>
+    <string name="player_post_play_play">Luaj</string>
+    <string name="player_post_play_previous_recommendation">Rekomandimi i mëparshëm</string>
+    <string name="player_post_play_next_recommendation">Rekomandimi tjetër</string>
+    <string name="player_post_play_return_to_player">Kthehu te luajtësi</string>
+    <string name="player_post_play_trailer_countdown">Traileri pas %1$d</string>
+    <string name="player_post_play_trailer_playing">Traileri po luhet</string>
+    <string name="player_post_play_trailer">Trailer</string>
+
+    <string name="mdblist_show_on_hero_title">Përdor vlerësimet në banerin kryesor</string>
+    <string name="mdblist_show_on_hero_subtitle">Shfaq vlerësimet MDBList në banerin kryesor (Modern dhe Classic/Grid)</string>
+    <string name="mdblist_rating_order_title">Renditja e vlerësimeve</string>
+    <string name="mdblist_rating_order_subtitle">Baneri Modern shfaq 3 vlerësimet e para të aktivizuara dhe të disponueshme. Përdor shigjetat për të ndryshuar renditjen.</string>
 </resources>

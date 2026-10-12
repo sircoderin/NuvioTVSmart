@@ -35,9 +35,12 @@ function key(node) {
 // worth skipping; other elements are compared node by node.
 function signature(node) {
   if (node.nodeType !== 1) return node.textContent;
-  return node.classList.contains("home-content-card") || node.dataset.rowKey
+  // Rows/cards are useful unchanged-subtree boundaries. Serializing every
+  // wrapper and descendant repeats the same markup at each ancestor depth.
+  // Other elements still reconcile attributes and children from source nodes.
+  return node.dataset.rowKey || node.classList.contains("home-content-card")
     ? node.outerHTML
-    : null;
+    : undefined;
 }
 
 function snapshot(source, markup = signature(source)) {
@@ -114,7 +117,7 @@ function updateAttributes(node, previous, next) {
 function updateNode(node, source, protectedNode) {
   const previous = sourceByNode.get(node);
   const markup = signature(source);
-  if (markup !== null && previous.markup === markup) return;
+  if (markup !== undefined && previous.markup === markup) return;
   if (node.nodeType === 1) {
     updateAttributes(node, previous.node, source);
     updateChildren(node, source, protectedNode);

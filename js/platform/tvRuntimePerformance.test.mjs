@@ -7,11 +7,13 @@ import {
   resetTvRuntimePerformanceProfile
 } from "./tvRuntimePerformance.js";
 
-function profile(platform, chromium) {
+function profile(platform, chromium, mode = "auto") {
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   const previousOverride = globalThis.__NUVIO_PLATFORM__;
   const previousAdapter = Platform.current;
+  const previousStorage = globalThis.localStorage;
   try {
+    globalThis.localStorage = { getItem: () => JSON.stringify(mode) };
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
       value: { userAgent: `Chrome/${chromium}.0` }
@@ -21,6 +23,8 @@ function profile(platform, chromium) {
     resetTvRuntimePerformanceProfile();
     return getTvRuntimePerformanceProfile();
   } finally {
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
     if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
     else delete globalThis.navigator;
     if (previousOverride === undefined) delete globalThis.__NUVIO_PLATFORM__;
@@ -50,4 +54,12 @@ test("old and unidentified webOS retain their existing fallbacks", () => {
     assert.equal(result.isPerformanceConstrained, true);
     assert.equal(result.isLegacyTvRuntime, true);
   }
+});
+
+test("rendering overrides do not change legacy API classification", () => {
+  assert.equal(profile("webos", 87, "full").isPerformanceConstrained, false);
+  assert.equal(profile("webos", 87, "full").isLegacyTvRuntime, false);
+  assert.equal(profile("webos", 68, "full").isLegacyTvRuntime, true);
+  assert.equal(profile("webos", 108, "reduced").isPerformanceConstrained, true);
+  assert.equal(profile("webos", 108, "reduced").isLegacyTvRuntime, false);
 });

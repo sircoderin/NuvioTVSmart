@@ -77,4 +77,21 @@
     <string name="unsupported_device_close">Luk</string>
     <string name="unsupported_device_try_anyway">Prøv alligevel</string>
     <string name="unsupported_device_unavailable">Ikke tilgængelig</string>
+
+    <string name="player_post_play_because">Fordi du så %1$s</string>
+    <string name="player_post_play_recommended">Anbefalet til dig</string>
+    <string name="player_post_play_play">Afspil</string>
+    <string name="player_post_play_previous_recommendation">Forrige anbefaling</string>
+    <string name="player_post_play_next_recommendation">Næste anbefaling</string>
+    <string name="player_post_play_return_to_player">Tilbage til afspilleren</string>
+    <string name="player_post_play_trailer_countdown">Trailer om %1$d</string>
+    <string name="player_post_play_trailer_playing">Trailer afspilles</string>
+    <string name="player_post_play_trailer">Trailer</string>
+
+    <string name="mdblist_show_on_hero_title">Brug bedømmelser i hovedbanneret</string>
+    <string name="mdblist_show_on_hero_subtitle">Vis MDBList-bedømmelser i hovedbanneret (Modern og Classic/Grid)</string>
+    <string name="mdblist_rating_order_title">Rækkefølge af bedømmelser</string>
+    <string name="mdblist_rating_order_subtitle">De første 3 aktiverede og tilgængelige bedømmelser vises i Modern-banneret. Brug pilene til at ændre rækkefølgen.</string>
+    <string name="cd_move_up">Flyt op</string>
+    <string name="cd_move_down">Flyt ned</string>
 </resources>

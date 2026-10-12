@@ -6,9 +6,11 @@ Read [RESULTS.md](RESULTS.md) for the measured outcomes and limitations. The ori
 
 Upstream 1.2.4 (`d4dcb29`) is merged while retaining the fork policies below.
 Full/Reduced rendering settings override the automatic constrained policy, not
-legacy API compatibility. The merged build is not device-measured or deployed;
-the TV remains on the verified original fork 1.2.3. Historical results below
-are not measurements of this merge. Experimental issue candidates are excluded.
+legacy API compatibility. At the user's subsequent request, the merged fork
+1.2.4 was installed: metadata, bundle, CSS and private configuration match the
+packaged IPK; Home is visible and playback paused. Performance has not been
+remeasured, so historical results below are not measurements of this merge.
+Experimental issue candidates are excluded.
 
 The intended Git layout is `origin` = `sircoderin/NuvioTVSmart`, `upstream` = `NuvioMedia/NuvioTVSmart`, and `webos-performance` = the custom build branch. Keep `main` aligned with upstream. Inspect `git status`, remotes, and the branch before starting; retain unrelated local edits.
 

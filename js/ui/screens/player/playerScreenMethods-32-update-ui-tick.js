@@ -10,6 +10,7 @@ export function createPlayerScreenMethods32() {
       if (this.isExternalFrameMode()) {
         return;
       }
+      this.syncStartupGateAndParentalGuide?.();
       this.syncPlayerStreamSource();
       this.ensureNextEpisodeStreamsPrefetch();
       this.shouldShowNextEpisodeCard();

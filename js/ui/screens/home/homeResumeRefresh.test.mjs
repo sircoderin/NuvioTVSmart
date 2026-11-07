@@ -41,8 +41,10 @@ test("a watched-title refresh renders only when the watched set changes", async 
     homeLoadToken: 1,
     rows: [{ result: { data: { items: [{ id: "tt1" }, { id: "tt2" }] } } }],
     watchedItems: [],
+    // render() records the watched set it drew.
     requestBackgroundRender() {
       renders += 1;
+      this.renderedWatchedTitleIds = this.watchedTitleIds;
     }
   };
   try {

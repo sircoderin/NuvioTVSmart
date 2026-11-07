@@ -176,9 +176,13 @@ export function createPlayerScreenMethods44() {
           isAssSubtitleCodec(track?.codec_name) ||
           Boolean(windowData.assBody);
         const cues = this.parseSubtitleCues(windowData.body);
+        // The webOS renderer ignores the subtitle style and offers only five
+        // coarse sizes. Addon subtitles already use the HTML overlay on webOS,
+        // so embedded text does too whenever its cues could be extracted; the
+        // native renderer remains the fallback when they could not.
         const shouldUseHtml =
           isTizenEmbeddedTextSubtitleFallbackTrack(track) ||
-          (Environment.isWebOS() && this.subtitleRenderMode === "html") ||
+          Environment.isWebOS() ||
           this.webOsEmbeddedTextSubtitleUsingHtml ||
           Boolean(windowData.hasAssOverrideTags) ||
           (isAssTrack && cues.length > 0);

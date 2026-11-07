@@ -1,6 +1,8 @@
 import { ensureHeroMdbListRatings } from "./homeHeroMdbListLoad.js";
 import * as internals from "./homeScreenContext.js";
 import { hasMountedHomeDom, updateHomeDom } from "./homeDomUpdate.js";
+import { syncHomeBootSnapshot } from "./homeBootSnapshot.js";
+import { Router } from "../../navigation/routerState.js";
 
 export function createHomeScreenMethods23() {
   const {
@@ -495,6 +497,7 @@ export function createHomeScreenMethods23() {
       void ensureHeroMdbListRatings.call(this);
       this.scheduleHomeLazyImageHydration(null, { refreshIndex: true });
       this.scheduleReturnFocusRestore();
+      syncHomeBootSnapshot(this, Router);
       const mountedRows = Number(this.navModel?.rows?.length || 0);
       const mountedCards = Number((this.navModel?.rows || []).reduce((total, rowNodes) => total + rowNodes.length, 0));
       logHomePerf("render", {

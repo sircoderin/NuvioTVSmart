@@ -20,6 +20,10 @@ import { StartupSyncService } from "./core/profile/startupSyncService.js";
 import { ProviderCredentialSyncService } from "./core/profile/providerCredentialSyncService.js";
 import { ThemeManager } from "./ui/theme/themeManager.js";
 import { renderAppShell } from "./bootstrap/renderAppShell.js";
+import {
+  releaseHomeBootSnapshot,
+  setHomeBootSnapshotEntry
+} from "./ui/screens/home/homeBootSnapshot.js";
 import { renderAddonRemotePage } from "./bootstrap/renderAddonRemotePage.js";
 import { preloadStreamBadgeImages } from "./ui/screens/stream/streamScreen.js";
 import { warmStreamingLibs } from "./runtime/loadStreamingLibs.js";
@@ -169,6 +173,7 @@ function formatErrorMessage(error) {
 }
 
 function renderFatalError(error) {
+  releaseHomeBootSnapshot();
   const message = formatErrorMessage(error);
   const guard = globalThis.NuvioBootGuard;
   if (guard && typeof guard.fail === "function" && guard.isActive?.()) {
@@ -345,6 +350,7 @@ async function routeAfterAuthentication() {
   loginTrace("authenticated route begin", { currentRoute: Router.getCurrent() || "" });
   const profileRoute = await shouldShowProfileSelection();
   loginTrace("authenticated route profile decision", { show: profileRoute.show === true });
+  setHomeBootSnapshotEntry(!profileRoute.show);
   if (profileRoute.show) {
     await Router.navigate("profileSelection", {
       skipInitialProfileSync: true,
@@ -685,10 +691,10 @@ async function bootstrapApp() {
       if (shouldBypassQr) {
         // Honor "remember last profile" for guests too: skip the picker and go
         // straight in with the last profile (guests have no PIN).
-        if (
-          ProfileManager.isRememberLastProfileEnabled() &&
-          ProfileManager.hasEverSelectedProfile()
-        ) {
+        const entersDirectly =
+          ProfileManager.isRememberLastProfileEnabled() && ProfileManager.hasEverSelectedProfile();
+        setHomeBootSnapshotEntry(entersDirectly);
+        if (entersDirectly) {
           enterWithLastProfile({ restoreWebOsRoute: true }).catch((error) => {
             console.warn("Failed to enter with last profile", error);
             ProfileManager.clearActiveProfile();
@@ -715,6 +721,7 @@ async function bootstrapApp() {
         }
         return;
       }
+      setHomeBootSnapshotEntry(false);
       const hasSeenQr = LocalStore.get("hasSeenAuthQrOnFirstLaunch");
       Router.navigate("authQrSignIn", {
         onboardingMode: !hasSeenQr

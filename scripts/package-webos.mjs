@@ -1,5 +1,6 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -8,6 +9,10 @@ import { compatibilityPolicy } from "./compatibilityPolicy.mjs";
 import { resolveBuildChromiumVersion } from "./buildTarget.mjs";
 import { runWebOsToolsBinary } from "./aresCli.mjs";
 import { pruneCssFileForPlatform } from "./pruneCssForPlatform.mjs";
+import {
+  homeBootSnapshotPaintConfig,
+  paintHomeBootSnapshot
+} from "../js/ui/screens/home/homeBootSnapshotPaint.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -149,7 +154,23 @@ const minimumWebOsChromium = Math.max(
   resolveBuildChromiumVersion()
 );
 
-function buildWebOsIndexHtml({ webOsScriptPath = "" } = {}) {
+// A saved Home snapshot is painted only by the build that saved it, because
+// its markup is only valid against that build's stylesheet.
+async function computeBuildId() {
+  const hash = createHash("sha1");
+  for (const file of ["app.bundle.js", path.join("css", "bundle.css")]) {
+    hash.update(await readFile(path.join(appStageDir, file)));
+  }
+  return hash.digest("hex").slice(0, 12);
+}
+
+function buildHomeBootSnapshotScript(buildId) {
+  const config = JSON.stringify(homeBootSnapshotPaintConfig(buildId));
+  return `window.__NUVIO_BUILD_ID__ = ${JSON.stringify(buildId)};
+    (${paintHomeBootSnapshot.toString()})(window, ${config});`;
+}
+
+function buildWebOsIndexHtml({ webOsScriptPath = "", buildId = "" } = {}) {
   const webOsScriptTag = webOsScriptPath ? `  <script src="${webOsScriptPath}"></script>\n` : "";
   const compatibilityOptions = JSON.stringify({
     platform: "webos",
@@ -170,6 +191,9 @@ function buildWebOsIndexHtml({ webOsScriptPath = "" } = {}) {
 </head>
 <body>
   <script src="boot-guard.js"></script>
+  <script>
+    ${buildHomeBootSnapshotScript(buildId)}
+  </script>
   <script src="core-js.bundle.js" onerror="window.NuvioBootGuard &amp;&amp; window.NuvioBootGuard.scriptFailed(this.src)"></script>
   <script>window.__NUVIO_PLATFORM__ = "webos";</script>
   <script>window.__NUVIO_WEBOS_PLUGIN_SERVICE_ENABLED__ = true; window.__NUVIO_WEBOS_PLUGIN_SERVICE_ID__ = "${webOsPluginServiceId}";</script>
@@ -177,7 +201,17 @@ function buildWebOsIndexHtml({ webOsScriptPath = "" } = {}) {
   <script src="assets/libs/qrcode-generator.js"></script>
 ${webOsScriptTag}  <script>
     window.NuvioBootGuard.runCompatibilityGate(${compatibilityOptions}, function startNuvioApp() {
-      window.NuvioBootGuard.loadScript("app.bundle.js");
+      function loadApp() {
+        window.NuvioBootGuard.loadScript("app.bundle.js");
+      }
+      // Let the Home snapshot reach the screen before the bundle occupies the main thread.
+      if (window.__NUVIO_BOOT_SNAPSHOT__ && window.requestAnimationFrame) {
+        window.requestAnimationFrame(function () {
+          window.setTimeout(loadApp, 0);
+        });
+      } else {
+        loadApp();
+      }
     });
   </script>
 </body>
@@ -232,7 +266,7 @@ async function stageApp() {
   const webOsScriptPath = await resolveWebOsScriptPath(appStageDir);
   await writeFile(
     path.join(appStageDir, "index.html"),
-    buildWebOsIndexHtml({ webOsScriptPath }),
+    buildWebOsIndexHtml({ webOsScriptPath, buildId: await computeBuildId() }),
     "utf8"
   );
 }

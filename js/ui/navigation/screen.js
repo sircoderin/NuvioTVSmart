@@ -1,3 +1,5 @@
+import { releaseHomeBootSnapshot } from "../screens/home/homeBootSnapshot.js";
+
 export const ScreenUtils = {
   // Micro-fade for fast-path TVs: returns the full enter class on capable
   // hardware, a cheap opacity-only fade class on fast-path TVs, or "" when
@@ -34,6 +36,10 @@ export const ScreenUtils = {
   show(container) {
     if (!container) {
       return;
+    }
+    // The launch opened another screen than Home; drop the Home snapshot.
+    if (container.id !== "home") {
+      releaseHomeBootSnapshot();
     }
     if (container.style.display !== "block") {
       container.style.display = "block";

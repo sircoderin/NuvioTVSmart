@@ -150,3 +150,32 @@ screenshots, installed sources, private configuration and IPK stay local under
 ignored paths. The trial is left installed for evaluation; Home is at the top.
 Final cleanup confirmed paused video, no temporary styles, detached experiment
 rows, active probes or saved runtime-class overrides.
+
+## Home boot snapshot (local harness, not yet measured on the TV)
+
+The app saves the first screen of Home (hero, Continue Watching, two catalog
+rows of eight cards) to `localStorage` once Home has settled at the top. The
+packaged `index.html` paints it, read-only, before the app bundle loads; the
+live Home replaces it once its first poster has painted.
+
+Measured with `npm run perf:local` (headless Chromium posing as Chromium 87,
+CPU 8x slower, recorded network with 150 ms API latency, 60 synthetic catalog
+rows plus Cinemeta, guest profile), five warm relaunches per side, same build,
+`--no-snapshot` deleting the saved snapshot before each launch:
+
+| Median of 5 launches             | No snapshot | Snapshot |
+| -------------------------------- | ----------- | -------- |
+| First poster visible             | 1,513 ms    | 549 ms   |
+| Live Home interactive (focused)  | 1,396 ms    | 1,488 ms |
+| Settled (3 s without long tasks) | 1,695 ms    | 1,605 ms |
+| Long tasks until settled         | 875 ms      | 763 ms   |
+| Layout + style recalculation     | 187 ms      | 233 ms   |
+| D-pad key to next frame, p95     | 37 ms       | 35 ms    |
+
+Before the overlay used `contain: strict`, the copied DOM took part in the
+app's own style and layout passes: interactive was 1,759 ms (+26%) and long
+tasks 1,157 ms. Rescaled posters are `blob:` URLs that end with the page; the
+snapshot stores their original URLs instead. These are relative numbers for
+comparing builds on one machine. Absolute TV timings, and whether full-size
+snapshot posters cost more decode time on the TV than they save, still need a
+TV measurement.

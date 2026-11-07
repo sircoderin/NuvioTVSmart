@@ -58,3 +58,15 @@
 .performance-constrained .home-screen-shell .home-track {
   transform: none;
 }
+
+/* Backdrop blur re-filters the artwork behind a panel on every scroll frame.
+   A more opaque panel keeps the text legible without it. */
+.performance-constrained .stream-route-panel-shell,
+.performance-constrained .series-stream-panel {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.performance-constrained .stream-route-panel-shell {
+  background: rgb(var(--bg-elevated-rgb) / 0.82);
+}

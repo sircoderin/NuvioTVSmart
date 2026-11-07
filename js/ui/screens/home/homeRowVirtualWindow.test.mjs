@@ -165,3 +165,60 @@ test("pointer jumps mount the visible catalogs and update the hero with focus", 
   assert.ok(model.snapshot().indices.has(model.indexAt(10000)));
   assert.equal(focusOptions.suppressFlows, false, "the hero must follow pointer-selected focus");
 });
+
+test("renders that keep the mounted rows skip geometry reads and scroll writes", () => {
+  const model = new HomeRowVirtualWindow();
+  model.setRows(Array.from({ length: 20 }, (_, i) => row(i)));
+  model.trackStates.set("row_0", 120);
+  const counts = { reads: 0, scrollWrites: 0 };
+  const makeSection = (key) => {
+    let scrollLeft = 0;
+    const track = {
+      dataset: { trackRowKey: key },
+      get scrollLeft() {
+        return scrollLeft;
+      },
+      set scrollLeft(value) {
+        counts.scrollWrites += 1;
+        scrollLeft = value;
+      },
+      querySelectorAll: () => []
+    };
+    return {
+      dataset: { rowKey: key },
+      querySelector: (selector) => (selector === ".home-track" ? track : null),
+      getBoundingClientRect() {
+        counts.reads += 1;
+        return { top: 0, height: 300 };
+      }
+    };
+  };
+  let sections = [makeSection("row_0"), makeSection("row_1")];
+  const catalogs = {
+    querySelector: (selector) => (selector === ".home-modern-row" ? sections[0] : null),
+    querySelectorAll: () => sections
+  };
+  const screen = {
+    ...createHomeRowVirtualizationMethods(),
+    homeRowVirtualWindow: model,
+    container: {
+      querySelector: (selector) => (selector === ".home-catalogs-virtual" ? catalogs : null),
+      querySelectorAll: () => sections
+    },
+    getHomeViewport: () => ({ scrollTop: 0 })
+  };
+
+  screen.finishVirtualHomeRowUpdate();
+  assert.ok(counts.reads > 0, "freshly mounted rows are measured");
+  assert.equal(sections[0].querySelector(".home-track").scrollLeft, 120);
+
+  counts.reads = 0;
+  counts.scrollWrites = 0;
+  screen.finishVirtualHomeRowUpdate();
+  assert.deepEqual(counts, { reads: 0, scrollWrites: 0 });
+
+  sections = [sections[1], makeSection("row_2")];
+  screen.finishVirtualHomeRowUpdate();
+  assert.ok(counts.reads > 0, "an entering row is measured");
+  assert.equal(counts.scrollWrites, 0, "retained tracks keep their own scroll position");
+});

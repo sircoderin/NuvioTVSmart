@@ -66,9 +66,20 @@ export function createHomeRowVirtualizationMethods() {
       const catalogs = this.container?.querySelector(".home-catalogs-virtual");
       const viewport = this.getHomeViewport();
       if (!model || !catalogs || !viewport) return;
-      for (const track of catalogs.querySelectorAll(".home-track")) {
-        const scrollLeft = model.trackStates.get(track.dataset.trackRowKey);
-        if (Number.isFinite(scrollLeft)) track.scrollLeft = scrollLeft;
+      // Retained rows keep their scroll position, and their heights only feed
+      // the spacers once they leave the window, which captures them first.
+      // Only rows mounted since the last update need restoring and measuring.
+      const settled =
+        this.homeRowVirtualSettledRows || (this.homeRowVirtualSettledRows = new WeakSet());
+      const entering = Array.from(catalogs.querySelectorAll(".home-modern-row")).filter(
+        (section) => !settled.has(section)
+      );
+      if (!entering.length) return;
+      for (const section of entering) {
+        const track = section.querySelector(".home-track");
+        const scrollLeft = model.trackStates.get(track?.dataset.trackRowKey);
+        if (track && Number.isFinite(scrollLeft)) track.scrollLeft = scrollLeft;
+        settled.add(section);
       }
       // Anchor the mounted window while replacing estimated prefix heights.
       const anchor = catalogs.querySelector(".home-modern-row");

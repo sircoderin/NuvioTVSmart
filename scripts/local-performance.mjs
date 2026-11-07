@@ -44,6 +44,10 @@ posing as the TV's Chromium 87, with CPU throttling and recorded network.
   --compare=FILE       print this run against an earlier result JSON
   --cpu-profile        save a CPU profile of the first measured launch and print
                        its top self-time functions
+  --eval=EXPR          evaluate EXPR in the page at the end of each launch and print it
+  --no-snapshot        delete the saved Home boot snapshot before each launch (A/B
+                       against the same build)
+  --screenshot-at=MS,MS  save screenshots at these wall times after navigation starts
   --screenshot         save a screenshot after each launch settles (results folder)
   --chrome=PATH        Chromium binary (default: Playwright's cached headless shell,
                        or NUVIO_PERF_CHROME)
@@ -65,7 +69,10 @@ const settings = {
   offline: flag("offline"),
   catalogs: Math.max(0, Number(option("catalogs", 60))),
   cpuProfile: flag("cpu-profile"),
-  screenshot: flag("screenshot")
+  screenshot: flag("screenshot"),
+  noSnapshot: flag("no-snapshot"),
+  evaluate: option("eval", ""),
+  screenshotAt: option("screenshot-at", "").split(",").filter(Boolean).map(Number)
 };
 const TV_USER_AGENT =
   "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36 WebAppManager";
@@ -74,6 +81,7 @@ const fixtureDir = path.join(cacheDir, "fixtures");
 const resultDir = path.join(cacheDir, "results");
 const SETTLE_QUIET_MS = 3000;
 const BOOT_TIMEOUT_MS = 90000;
+const SNAPSHOT_WAIT_MS = 15000;
 
 const SYNTHETIC_ADDON = "https://perf-catalogs.nuvio.test";
 const SYNTHETIC_PAGE = 30;
@@ -581,6 +589,11 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
     await send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
     await send("Page.addScriptToEvaluateOnNewDocument", { source: seedScript(state) });
     await send("Page.addScriptToEvaluateOnNewDocument", { source: PAGE_PROBE });
+    if (settings.noSnapshot) {
+      await send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `try { localStorage.removeItem("homeBootSnapshot"); } catch (_) {}`
+      });
+    }
     await send("Emulation.setCPUThrottlingRate", { rate: settings.cpu });
     if (cpuProfile) {
       await send("Profiler.enable");
@@ -589,6 +602,18 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
     }
     const loaded = Date.now();
     await send("Page.navigate", { url: appUrl });
+    for (const at of settings.screenshotAt) {
+      setTimeout(() => {
+        send("Page.captureScreenshot", { format: "png" })
+          .then(({ data }) =>
+            writeFile(
+              path.join(resultDir, `screen-at-${at}ms-${Date.now()}.png`),
+              Buffer.from(data, "base64")
+            )
+          )
+          .catch(() => {});
+      }, at);
+    }
 
     // Boot: wait for interactive Home, then for a quiet period without long tasks.
     let marks = {};
@@ -695,6 +720,26 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
         longTaskMax: navigation.longTaskMax,
         homeElements: navigation.homeElements
       };
+    }
+    // Stay on Home until the app saves its boot snapshot, as a viewer would.
+    const snapshotWaitStart = Date.now();
+    let snapshotSaved = false;
+    while (Date.now() - snapshotWaitStart < SNAPSHOT_WAIT_MS) {
+      snapshotSaved = await evaluate(
+        cdp,
+        sessionId,
+        `(() => { try { const s = JSON.parse(localStorage.getItem("homeBootSnapshot") || "null");
+          return Boolean(s && s.savedAt >= performance.timeOrigin); } catch (_) { return false; } })()`
+      ).catch(() => false);
+      if (snapshotSaved) break;
+      await sleep(500);
+    }
+    boot.snapshotSaved = snapshotSaved;
+    if (settings.evaluate) {
+      const value = await evaluate(cdp, sessionId, settings.evaluate).catch((error) =>
+        String(error)
+      );
+      console.log(`  eval: ${JSON.stringify(value)}`);
     }
     return {
       boot,

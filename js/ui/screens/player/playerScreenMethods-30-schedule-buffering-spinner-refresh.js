@@ -75,6 +75,17 @@ export function createPlayerScreenMethods30() {
       if (this.startupAudioGateActive && this.isStartupGateReleaseReady()) {
         this.releaseStartupAudioGate();
       }
+      // Releasing the gate leaves the presentation mute in place when the
+      // loading overlay was already hidden; nothing else clears it until a seek.
+      if (
+        PlayerController.startupPresentationAudioMuted &&
+        !this.loadingVisible &&
+        !this.isStartupErrorVisible() &&
+        !this.isExternalFrameMode() &&
+        this.isStartupLogoDismissReady()
+      ) {
+        PlayerController.setStartupPresentationAudioMuted(false);
+      }
       if (!this.parentalGuideShown) {
         this.maybeShowParentalGuideOverlay();
       }

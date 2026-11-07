@@ -57,3 +57,29 @@ test("does not release or show again after the startup sequence completed", () =
 
   assert.deepEqual(events, []);
 });
+
+const { PlayerController } = await import("../js/core/player/playerController.js");
+
+for (const blockedBy of [null, "loading", "dismiss", "error", "external"]) {
+  test(`tick releases the presentation mute after loading hid early (${blockedBy})`, () => {
+    const video = { muted: true, defaultMuted: true, volume: 1 };
+    Object.assign(PlayerController, {
+      video,
+      startupAudioGateActive: false,
+      startupPresentationAudioMuted: true,
+      webOsDtsAudioState: null
+    });
+    const { screen } = createScreen({ ready: false, gateActive: false, shown: true });
+    Object.assign(screen, {
+      loadingVisible: blockedBy === "loading",
+      isStartupLogoDismissReady: () => blockedBy !== "dismiss",
+      isStartupErrorVisible: () => blockedBy === "error",
+      isExternalFrameMode: () => blockedBy === "external"
+    });
+
+    screen.syncStartupGateAndParentalGuide();
+
+    assert.equal(PlayerController.startupPresentationAudioMuted, blockedBy !== null);
+    assert.equal(video.muted, blockedBy !== null);
+  });
+}

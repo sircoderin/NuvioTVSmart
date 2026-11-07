@@ -4,13 +4,14 @@ Read [RESULTS.md](RESULTS.md) for the measured outcomes and limitations. The ori
 
 ## Maintain the fork
 
-Upstream 1.2.4 (`d4dcb29`) is merged while retaining the fork policies below.
-Full/Reduced rendering settings override the automatic constrained policy, not
-legacy API compatibility. At the user's subsequent request, the merged fork
-1.2.4 was installed: metadata, bundle, CSS and private configuration match the
-packaged IPK; Home is visible and playback paused. Performance has not been
-remeasured, so historical results below are not measurements of this merge.
-Experimental issue candidates are excluded.
+Upstream 1.3.8 (`0604af9`) is merged on `webos-performance-merge-1.3.8` while
+retaining the fork policies below; `webos-performance` still holds the 1.2.4
+fork. Upstream removed the Auto/Reduced/Full rendering setting, so the fork
+keeps only the automatic constrained policy. Upstream's stream picker
+re-checked `loadToken` before opening the player; the fork advances that token
+on selection to cancel picker work, so the guard uses `playResolveToken`.
+Performance has not been remeasured on this merge; historical results below
+are not measurements of it. Experimental issue candidates are excluded.
 
 The intended Git layout is `origin` = `sircoderin/NuvioTVSmart`, `upstream` = `NuvioMedia/NuvioTVSmart`, and `webos-performance` = the custom build branch. Keep `main` aligned with upstream. Inspect `git status`, remotes, and the branch before starting; retain unrelated local edits.
 
@@ -31,9 +32,11 @@ Resolve conflicts around the behavior below, then test on the TV before installi
 ## Preserve these behaviors during merges
 
 - `js/platform/tvRuntimePerformance.js`: webOS 2022/2023 selects constrained rendering without selecting legacy API fallbacks. Tests distinguish those concepts.
-- `css/components-61.css`: eliminate costly motion but explicitly reveal elements that relied on keyframes for opacity (parental warnings, loading identity/spokes, stream panel, library picker, PIN opening). Preserve menu closing/hidden states. Home row tracks have no 3D transform on constrained TVs, so they do not get one compositor layer set per row.
+- `css/components-64.css` (loaded last; upstream reused `components-61.css`): eliminate costly motion but explicitly reveal elements that relied on keyframes for opacity (parental warnings, loading identity/spokes, stream panel, library picker, PIN opening). Preserve menu closing/hidden states. Home row tracks have no 3D transform on constrained TVs, so they do not get one compositor layer set per row. Stream panels drop `backdrop-filter`, which re-filters the artwork behind them on every scroll frame, and use a more opaque background instead.
+- `css/components-65.css` (loaded last): dense stream picker. Upstream's Android TV sizing (wrapping 32 px titles, unclamped 24 px descriptions, 40 px row gaps) showed about two results per screen on the tested TV; this restores the fork's 25/19 px clamped cards.
+- Player startup mute (method 30 `syncStartupGateAndParentalGuide`): the UI tick also clears the presentation mute once loading is hidden and startup is ready. Releasing only the audio gate left `video.muted` set for the whole title when loading hid first; a seek was the only other path that cleared it.
 - Home: `expandedPosterMarkup.js`, helpers 02/15, methods 12. Allocate expanded art/layers on focus, preserve runtime-owned nodes through `homeDomUpdate.js`, and skip forced hero layout on constrained TVs. The existing constrained row preview limit is ten items, with horizontal pagination. `homeDomUpdate.js` keeps markup signatures only for rows (`data-row-key`) and cards; other elements are compared node by node. Serializing every element repeated each subtree once per ancestor.
-- Modern Home catalog virtualization (`homeRowVirtualWindow.js`, `homeRowVirtualization.js`): constrained rendering mounts at most nine catalog/collection rows, independently of the data-fetch range. Continue Watching/upcoming and the hero remain outside this window. Two aggregate spacers preserve catalog height; measured heights, horizontal positions and rendered card counts are cached by row key without retaining detached rows. Preserve original `this.rows` indices in card metadata. D-pad navigation resolves the logical adjacent catalog before mounting its DOM; Back mounts the saved row before restoring focus. Local window shifts create only entering rows, retain overlapping DOM and rebind pagination/hydration. Set spacer geometry before restoring viewport scroll, then compensate only for newly measured heights; doing those in the opposite order double-scrolls pointer jumps. Capture metrics before cleanup hides Home. Full rendering and Classic/Grid keep the previous rendering paths. This is a trial with mixed TV latency results, not established native parity; see the virtualization checkpoint in RESULTS.md.
+- Modern Home catalog virtualization (`homeRowVirtualWindow.js`, `homeRowVirtualization.js`): constrained rendering mounts at most nine catalog/collection rows, independently of the data-fetch range. Continue Watching/upcoming and the hero remain outside this window. Two aggregate spacers preserve catalog height; measured heights, horizontal positions and rendered card counts are cached by row key without retaining detached rows. Preserve original `this.rows` indices in card metadata. D-pad navigation resolves the logical adjacent catalog before mounting its DOM; Back mounts the saved row before restoring focus. Local window shifts create only entering rows, retain overlapping DOM and rebind pagination/hydration. Set spacer geometry before restoring viewport scroll, then compensate only for newly measured heights; doing those in the opposite order double-scrolls pointer jumps. Capture metrics before cleanup hides Home. `finishVirtualHomeRowUpdate` restores scroll and measures only rows mounted since the previous update; renders that keep the mounted rows do no geometry reads. Full rendering and Classic/Grid keep the previous rendering paths. This is a trial with mixed TV latency results, not established native parity; see the virtualization checkpoint in RESULTS.md.
 - Home catalog range (`homeCatalogWindow.js`, `loadData`, `loadHomeCatalogRange`): Home requests catalogs in display order and skips catalogs hidden on Home. It requests the first `getInitialCatalogLoadCount()` rows plus the hero's catalogs, then extends the range to `HOME_CATALOG_PRELOAD_ROWS` rows past the focused row (`ensureHomeCatalogWindowForNode`, called from `rememberMainRowFocus`) or when pointer scrolling nears the end (`ensureHomeCatalogWindowForViewport`). Background reloads keep the range already reached. While focus is on the last navigation row, renders are not deferred for input, so rows loaded ahead appear while a key is held. Skeleton rows for every catalog were measured and rejected: mounting 70 placeholder rows cost about as much as the real rows.
 - Home deferred catalogs (`createHomeRowBatcher`): on constrained and legacy TVs, rows that arrive after the initial batch are published together every `HOME_DEFERRED_ROW_BATCH_MS`; the window starts at the first pending row, so a trickle cannot postpone it. The first catalog batch still renders row by row. Each range is requested at once: the page receives a response only between main-thread tasks, so a cap on requests in flight let each Home render hold back the next catalogs. `fetchCatalogRows` keeps a `concurrency` pool for other callers, and a superseded load (`shouldContinue`) stops starting requests. `refreshWatchedTitleState` requests a render only when the watched title ID set changes.
 - Player methods 28/68/71: retain control button identity through pause/resume; update only changed contents; keep focus and overlay synchronization. Do not reintroduce duplicate renders after `togglePause()`.
@@ -56,10 +59,10 @@ Use Node 22+ for the profiler (global WebSocket). `npm run test:unit` discovers 
 Runtime service settings are private and absent from a fresh checkout. A default build may fall back to example/empty configuration. For a deployable package, use your ignored `local.properties`, or capture the installed app's static configuration with the profiler as described below. Captured configuration stays under `.cache/tv-performance/`, with owner-only file permissions. Never commit it, SSH device keys, raw profiles, screenshots, or installed bundles; they can contain private or signed URLs.
 
 ```sh
-NUVIO_LOCAL_PROPERTIES=.cache/tv-performance/tv-build.properties NUVIO_REQUIRE_LOCAL_PROPERTIES=1 npm run package:webos
+NUVIO_BUILD_CHROMIUM=87 NUVIO_LOCAL_PROPERTIES=.cache/tv-performance/tv-build.properties NUVIO_REQUIRE_LOCAL_PROPERTIES=1 npm run package:webos
 ```
 
-The package is `space.nuvio.webos_1.2.3_all.ipk` since the 1.2.3 merge; check the current app version for future builds. Package files are ignored. Installing replaces the running app and needs authorization from the current task.
+The package is `space.nuvio.webos_1.3.8_all.ipk` since the 1.3.8 merge; check the current app version for future builds. `NUVIO_BUILD_CHROMIUM` (`scripts/buildTarget.mjs`) targets the TV's browser instead of Chrome 56: esbuild/core-js/autoprefixer targets rise, and the inset/math/color and flex-gap CSS fallbacks are skipped (on this build: core-js 165 → 104 KB, app 3,767 → 3,692 KB, CSS 599 → 518 KB). The packaged boot gate raises its minimum Chromium to match, so older TVs report unsupported. Package files are ignored. Installing replaces the running app and needs authorization from the current task.
 
 ## Connect to the TV
 

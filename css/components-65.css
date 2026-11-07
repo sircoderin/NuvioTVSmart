@@ -1,0 +1,93 @@
+/* Dense stream picker. Android TV sizing (32px titles that wrap, unclamped
+   24px descriptions, 40px row gaps) fits about two results per screen on a
+   1080p TV layout; these values keep five or more visible. Kept in its own
+   file, loaded last, so upstream layout changes merge without conflicts. */
+.stream-route-list {
+  padding: 8px 8px 10px;
+}
+
+.stream-route-card-row {
+  margin-bottom: 18px;
+}
+
+.stream-route-card {
+  padding: 24px 28px;
+  border-radius: 20px;
+  gap: 28px;
+}
+
+.stream-route-card-heading {
+  font-size: 25px;
+  line-height: 33px;
+  letter-spacing: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stream-route-card-line {
+  font-size: 19px;
+  line-height: 1.28;
+  letter-spacing: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.stream-route-card-badges {
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.stream-route-card-badges:first-child {
+  margin: 0 0 12px;
+}
+
+.stream-route-card-badges-lazy {
+  height: 30px;
+  min-height: 30px;
+}
+
+.stream-route-stream-badge {
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: 7px;
+}
+
+.stream-route-stream-badge.size {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 16px;
+  line-height: 1;
+  letter-spacing: normal;
+}
+
+.stream-route-stream-badge.image {
+  min-width: 48px;
+  max-width: 132px;
+}
+
+.stream-route-stream-badge.image img {
+  max-height: 24px;
+  max-width: 118px;
+}
+
+.stream-route-addon-badge {
+  width: 56px;
+  height: 56px;
+}
+
+.stream-route-addon-name {
+  font-size: 17px;
+  line-height: 23px;
+  letter-spacing: normal;
+}
+
+.stream-route-provider-label {
+  padding: 0 0 6px 20px;
+  font-size: 17px;
+  line-height: 23px;
+  letter-spacing: normal;
+}

@@ -9,6 +9,11 @@ import cssnano from "cssnano";
 import autoprefixer from "autoprefixer";
 import { readAppMetadata, syncVersionFiles } from "./appMetadata.mjs";
 import { compatibilityPolicy } from "./compatibilityPolicy.mjs";
+import { resolveBuildChromiumVersion } from "./buildTarget.mjs";
+
+// A device-specific build (NUVIO_BUILD_CHROMIUM) skips syntax lowering,
+// polyfills and CSS fallbacks that its browser does not need.
+const buildChromiumVersion = resolveBuildChromiumVersion();
 import { writeRuntimeEnvScriptFile } from "./envProperties.mjs";
 import { buildI18nBundles } from "./buildI18nBundles.mjs";
 import { assSubtitleRuntimeSource } from "./assSubtitleRuntime.mjs";
@@ -462,12 +467,13 @@ async function buildCSS() {
       const result = await postcss([
         postcssGlobalData({ files: [path.join(cssDir, "base.css")] }),
         autoprefixer({
-          overrideBrowserslist: [`Chrome ${compatibilityPolicy.chromiumVersion}`],
+          overrideBrowserslist: [`Chrome ${buildChromiumVersion}`],
           grid: "autoplace"
         }),
-        legacyDeclarationFallbackPlugin(),
+        // inset and slash colors need Chromium 87; flex gap needs 84.
+        ...(buildChromiumVersion < 87 ? [legacyDeclarationFallbackPlugin()] : []),
         unsupportedSelectorFallbackPlugin(),
-        flexGapFallbackPlugin(),
+        ...(buildChromiumVersion < 84 ? [flexGapFallbackPlugin()] : []),
         cssnano()
       ]).process(`/* ${file} */\n${body}`, {
         from: path.join(cssDir, file),
@@ -518,7 +524,7 @@ async function buildCoreJsBundle() {
   console.log("building core-js bundle...");
   const { list: requiredModules } = coreJsCompat({
     modules: ["core-js/stable"],
-    targets: { chrome: String(compatibilityPolicy.chromiumVersion) }
+    targets: { chrome: String(buildChromiumVersion) }
   });
   if (requiredModules.length === 0) {
     throw new Error("Core-js compatibility query returned no required modules.");
@@ -535,7 +541,7 @@ async function buildCoreJsBundle() {
     bundle: true,
     format: "iife",
     minify: !debugBundle,
-    target: [`chrome${compatibilityPolicy.chromiumVersion}`],
+    target: [`chrome${buildChromiumVersion}`],
     legalComments: "none"
   });
 }
@@ -551,7 +557,7 @@ async function buildAssSubtitleLibrary() {
     format: "iife",
     outfile: path.join(distDir, "assets", "libs", "ass.min.js"),
     minify: !debugBundle,
-    target: [`chrome${compatibilityPolicy.chromiumVersion}`],
+    target: [`chrome${buildChromiumVersion}`],
     legalComments: "none"
   });
 }
@@ -570,7 +576,7 @@ async function buildPluginRuntimeAssets() {
     ],
     outfile: path.join(distDir, "assets", "libs", "quickjs-emscripten.global.js"),
     bundle: false,
-    target: [`chrome${compatibilityPolicy.chromiumVersion}`],
+    target: [`chrome${buildChromiumVersion}`],
     minify: !debugBundle,
     legalComments: "none"
   });
@@ -580,7 +586,7 @@ async function buildPluginRuntimeAssets() {
     bundle: true,
     platform: "browser",
     format: "iife",
-    target: [`chrome${compatibilityPolicy.chromiumVersion}`],
+    target: [`chrome${buildChromiumVersion}`],
     minify: !debugBundle,
     legalComments: "none",
     define: {
@@ -608,7 +614,7 @@ async function buildBundle() {
     minify: !debugBundle,
     format: "iife",
     sourcemap: debugBundle,
-    target: [`chrome${compatibilityPolicy.chromiumVersion}`],
+    target: [`chrome${buildChromiumVersion}`],
     metafile: true,
     define: {
       "process.env.NODE_ENV": '"production"',

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { readAppMetadata, syncVersionFiles } from "./appMetadata.mjs";
 import { compatibilityPolicy } from "./compatibilityPolicy.mjs";
+import { resolveBuildChromiumVersion } from "./buildTarget.mjs";
 import { runWebOsToolsBinary } from "./aresCli.mjs";
 import { pruneCssFileForPlatform } from "./pruneCssForPlatform.mjs";
 
@@ -143,13 +144,18 @@ async function resolveWebOsScriptPath(targetDir) {
   return webOsRuntimeScriptPath;
 }
 
+const minimumWebOsChromium = Math.max(
+  compatibilityPolicy.webOsChromiumVersion,
+  resolveBuildChromiumVersion()
+);
+
 function buildWebOsIndexHtml({ webOsScriptPath = "" } = {}) {
   const webOsScriptTag = webOsScriptPath ? `  <script src="${webOsScriptPath}"></script>\n` : "";
   const compatibilityOptions = JSON.stringify({
     platform: "webos",
     minVersion: Number.parseInt(compatibilityPolicy.webOsRequiredVersion, 10),
-    minChrome: compatibilityPolicy.webOsChromiumVersion,
-    requiredLabel: `LG webOS ${compatibilityPolicy.webOsRequiredVersion}+ · Chromium ${compatibilityPolicy.webOsChromiumVersion}+ (${compatibilityPolicy.webOsSupportYear}+)`
+    minChrome: minimumWebOsChromium,
+    requiredLabel: `LG webOS ${compatibilityPolicy.webOsRequiredVersion}+ · Chromium ${minimumWebOsChromium}+ (${compatibilityPolicy.webOsSupportYear}+)`
   });
 
   return `<!DOCTYPE html>

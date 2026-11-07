@@ -1,3 +1,5 @@
+import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
+
 export const MODERN_HOME_CONSTANTS = {
   heroFocusDelayMs: 450,
   heroRapidNavThresholdMs: 130,
@@ -140,6 +142,7 @@ export function renderModernCatalogRows({
 } = {}) {
   const catalogSeeAllMap = new Map();
   const sectionsMarkup = [];
+  const posterSettings = LayoutPreferences.get();
 
   rows.forEach((rowData, rowIndex) => {
     if (rowWindow && !rowWindow.indices.has(rowIndex)) return;
@@ -201,7 +204,8 @@ export function renderModernCatalogRows({
           expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
           preferLandscapePosters,
           deferRowImages,
-          watchedTitleIds
+          watchedTitleIds,
+          posterSettings
         )
       )
       .join("");
@@ -334,7 +338,7 @@ function renderModernHeroMarkup({
             typeof renderHeroBackdropImage === "function"
               ? renderHeroBackdropImage(display)
               : display.backdrop
-                ? `<img class="home-hero-backdrop" src="${escapeAttribute(display.backdrop)}" alt="${escapeAttribute(display.title)}" decoding="async" fetchpriority="high" />`
+                ? `<img class="home-hero-backdrop" src="${escapeAttribute(display.backdrop)}" alt="" decoding="async" fetchpriority="high" />`
                 : '<div class="home-hero-backdrop placeholder"></div>'
           }
           </div>

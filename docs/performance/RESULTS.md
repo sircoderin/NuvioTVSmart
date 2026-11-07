@@ -114,11 +114,11 @@ TV samples: start on catalog index 4, Modern layout with hero, 25 Down keys,
 400 ms between completed CDP dispatches; caches were not cleared. Key timing is
 keydown-listener to next animation-frame callback, not completed image display.
 
-| Sample | Final catalog index | Mounted catalog rows | Home elements | Median / p95 key-to-frame | Worst long task |
-| --- | --- | --- | --- | --- | --- |
-| Pre-change performance fork | 29 | 38 | 3,754 | 31 / 107 ms | 3,678 ms |
-| Spacer-corrected candidate | 29 | 9 | 928 | 14 / 172 ms | 718 ms |
-| Final installed build | 28 | 9 | 987 | 86 / 317 ms | 4,161 ms |
+| Sample                      | Final catalog index | Mounted catalog rows | Home elements | Median / p95 key-to-frame | Worst long task |
+| --------------------------- | ------------------- | -------------------- | ------------- | ------------------------- | --------------- |
+| Pre-change performance fork | 29                  | 38                   | 3,754         | 31 / 107 ms               | 3,678 ms        |
+| Spacer-corrected candidate  | 29                  | 9                    | 928           | 14 / 172 ms               | 718 ms          |
+| Final installed build       | 28                  | 9                    | 987           | 86 / 317 ms               | 4,161 ms        |
 
 One key in the final run reached a catalog boundary before the next catalog
 data arrived; navigation continued after it loaded. The pre-change run had 38

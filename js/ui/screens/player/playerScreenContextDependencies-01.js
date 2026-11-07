@@ -76,8 +76,6 @@ import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSetting
 
 import { TorrentSettingsStore } from "../../../data/local/torrentSettingsStore.js";
 
-import { WebOsAudioCompatibilityStore } from "../../../data/local/webOsAudioCompatibilityStore.js";
-
 import { matchStreamBadges } from "../../../core/streams/streamBadgeRules.js";
 
 import { hasReleaseToken } from "../../../core/streams/releaseToken.js";
@@ -103,6 +101,10 @@ import { DirectDebridResolver } from "../../../core/debrid/directDebridResolver.
 import { DebridStreamPresentation } from "../../../core/debrid/directDebridStreamPresentation.js";
 
 import { TrackingScrobbleService } from "../../../data/repository/trackingScrobbleService.js";
+
+import { recordDistinctPluginPlay } from "../../../core/player/pluginProviderPlayRecorder.js";
+
+import { resolveHdrSubtitleStyle } from "../../../core/player/hdrSubtitleStyle.js";
 
 import { WebOsEngineFsResolver } from "../../../core/p2p/webosEngineFsResolver.js";
 
@@ -395,7 +397,6 @@ export {
   DeviceLocalPlayerPreferences,
   StreamBadgeSettingsStore,
   TorrentSettingsStore,
-  WebOsAudioCompatibilityStore,
   matchStreamBadges,
   hasReleaseToken,
   isAutoPlayEffectivelyEnabled,
@@ -410,6 +411,8 @@ export {
   DirectDebridResolver,
   DebridStreamPresentation,
   TrackingScrobbleService,
+  recordDistinctPluginPlay,
+  resolveHdrSubtitleStyle,
   WebOsEngineFsResolver,
   TizenStreamingServerResolver,
   TizenEngineFsService,

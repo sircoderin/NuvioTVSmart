@@ -165,6 +165,7 @@ export function createHomeScreenMethods23() {
           ? HOME_GRID_SAFE_MAX_COLUMNS * homeGridRowCount
           : rowItemLimit;
       this.teardownGridStickyHeader();
+      this.renderedWatchedTitleIds = this.watchedTitleIds;
 
       let mainContentMarkup = "";
       let modernLayoutPayload = null;
@@ -175,11 +176,15 @@ export function createHomeScreenMethods23() {
         this.catalogSeeAllMap = new Map();
       } else if (this.layoutMode === "modern") {
         this.modernCatalogRenderOptions = {
-          rowItemLimit, showPosterLabels, showCatalogTypeSuffix,
+          rowItemLimit,
+          showPosterLabels,
+          showCatalogTypeSuffix,
           preferLandscapePosters: modernLandscapePostersEnabled,
-          createPosterCardMarkup, formatCatalogRowTitle,
+          createPosterCardMarkup,
+          formatCatalogRowTitle,
           shouldDeferRowImages: shouldDeferHomeRowImages,
-          watchedTitleIds: this.watchedTitleIds, escapeHtml
+          watchedTitleIds: this.watchedTitleIds,
+          escapeHtml
         };
         modernLayoutPayload = renderModernHomeLayout({
           rowWindow,

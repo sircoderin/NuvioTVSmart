@@ -2,8 +2,9 @@
 import * as internals from "./playerScreenContext.js";
 
 export function createPlayerVideoLifecycleHandlers(video, isTizenAvPlayPlayback) {
-  const { PlayerController, PlayerSettingsStore, Environment, TrackingScrobbleService } = internals;
+  const { PlayerController, PlayerSettingsStore, Environment, TrackingScrobbleService, getUsableAudioTrackLanguageValue } = internals;
   const onWaiting = () => {
+    this.seekLoadingVisualComplete = false;
     if (this.isStartupErrorVisible()) {
       return;
     }
@@ -13,36 +14,18 @@ export function createPlayerVideoLifecycleHandlers(video, isTizenAvPlayPlayback)
       this.resetPostValidationRecoveryValidationWindow();
     }
     const currentSeconds = this.getPlaybackCurrentSeconds();
-    // AVPlay does not provide a browser-native buffering UI. Keep the
-    // startup overlay hidden after the first frame, but expose the same
-    // centered transient indicator that Android TV shows while rebuffering.
-    if (isTizenAvPlayPlayback() && this.hasPresentedPlaybackFrame && currentSeconds > 0) {
+    this.dismissPauseOverlay();
+    // Match Android's post-first-frame buffering state: keep the startup
+    // overlay closed and preserve the user's current controls visibility.
+    if (this.hasPresentedPlaybackFrame && !this.seekLoading && !this.sourcesPanelVisible && !this.isSeekOverlaySuppressingControls()) {
       this.bufferingActive = true;
       this.bufferingSpinnerBaselineSeconds = currentSeconds;
       this.lastPlaybackProgressAt = Date.now();
       this.loadingVisible = false;
       this.updateLoadingVisibility();
       this.scheduleBufferingSpinnerRefresh();
-      return;
-    }
-    const minimalBufferingUiEnabled =
-      Environment.isWebOS() &&
-      PlayerSettingsStore.get().minimalBufferingUiEnabled === true &&
-      this.hasPresentedPlaybackFrame &&
-      currentSeconds > 0 &&
-      !this.seekLoading &&
-      !this.sourcesPanelVisible &&
-      !this.isSeekOverlaySuppressingControls();
-    this.dismissPauseOverlay();
-    this.loadingVisible = true;
-    if (minimalBufferingUiEnabled) {
-      this.bufferingActive = true;
-      this.bufferingSpinnerBaselineSeconds = currentSeconds;
-      this.lastPlaybackProgressAt = Date.now();
-      this.setControlsVisible(false, { focus: false });
-      this.updateLoadingVisibility();
-      this.scheduleBufferingSpinnerRefresh();
     } else {
+      this.loadingVisible = true;
       this.bufferingActive = false;
       this.updateLoadingVisibility();
       if (!this.sourcesPanelVisible && !this.isSeekOverlaySuppressingControls()) {
@@ -50,6 +33,7 @@ export function createPlayerVideoLifecycleHandlers(video, isTizenAvPlayPlayback)
       }
     }
     this.schedulePlaybackStallGuard();
+    this.updateUiTick();
   };
 
   const onPlaying = () => {
@@ -250,6 +234,17 @@ export function createPlayerVideoLifecycleHandlers(video, isTizenAvPlayPlayback)
     this.reapplyPendingWebOsAddonSubtitle?.(true);
     this.attemptPendingPlaybackRestore({ force: true });
 
+    // Tizen can publish AVPlay's audio list before the header metadata is
+    // loaded. Start that read before the startup preference pass so the first
+    // AVPlay track is not latched while the languages are still missing.
+    if (Environment.isTizen()) {
+      const avplayAudioTracks = typeof PlayerController.getAvPlayAudioTracks === "function" ? PlayerController.getAvPlayAudioTracks() : [];
+      const needsEmbeddedAudioMetadata =
+        !avplayAudioTracks.length || avplayAudioTracks.some((track) => !getUsableAudioTrackLanguageValue(track));
+      if (needsEmbeddedAudioMetadata) {
+        void this.loadEmbeddedSubtitleTracks();
+      }
+    }
     this.startupTrackPreferenceReady = true;
     this.refreshTrackDialogs();
     this.updateUiTick();
@@ -289,13 +284,19 @@ export function createPlayerVideoLifecycleHandlers(video, isTizenAvPlayPlayback)
     this.updateUiTick();
   };
 
-  const onSeeked = () => {
+  const onSeeked = (event) => {
     if (this.isStartupErrorVisible()) {
       return;
     }
     if (this.seekLoading) {
       this.seekLoadingSettled = true;
       this.seekLoadingProgressSeconds = null;
+      // The webOS adapter already confirmed real decode progress at the target.
+      // Hide only the spinner; Party readiness keeps its existing checks.
+      if (Environment.isWebOS() && event?.detail?.exactNativeSeek === true) {
+        this.seekLoadingVisualComplete = true;
+        this.updateLoadingVisibility();
+      }
     }
     if (this.hasPresentedPlaybackFrame && !this.playbackEngineValidated) {
       this.resetPlaybackEngineValidation();

@@ -50,8 +50,6 @@ export {
 
 export { TorrentSettingsStore } from "../../../data/local/torrentSettingsStore.js";
 
-export { WebOsAudioCompatibilityStore } from "../../../data/local/webOsAudioCompatibilityStore.js";
-
 export { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
 
 export { ExperienceModeStore } from "../../../data/local/experienceModeStore.js";
@@ -179,6 +177,7 @@ export {
   SUBTITLE_TEXT_COLOR_OPTIONS,
   SUBTITLE_TEXT_OPACITY_OPTIONS,
   SUBTITLE_OUTLINE_COLOR_OPTIONS,
+  SUBTITLE_HDR_BRIGHTNESS_OPTIONS,
   normalizeSubtitleStyleHex,
   clampSubtitleSize
 } from "./settingsScreenHelpers-02-available-languages.js";

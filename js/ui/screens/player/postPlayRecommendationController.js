@@ -645,7 +645,6 @@ function projectRecommendation({
   const useArtwork = Boolean(tmdbSettings.enabled && tmdbSettings.useArtwork);
   const useBasicInfo = Boolean(tmdbSettings.enabled && tmdbSettings.useBasicInfo);
   const useDetails = Boolean(tmdbSettings.enabled && tmdbSettings.useDetails);
-  const useReleaseDates = Boolean(tmdbSettings.enabled && tmdbSettings.useReleaseDates);
   const title = useBasicInfo ? firstNonBlank(enrichment?.localizedTitle, baseTitle) : baseTitle;
   const poster = basePoster;
   const backdrop = useArtwork ? firstNonBlank(enrichment?.backdrop, baseBackdrop) : baseBackdrop;
@@ -653,12 +652,8 @@ function projectRecommendation({
   const description = useBasicInfo
     ? firstNonBlank(enrichment?.description, meta.description, candidate.description)
     : firstNonBlank(meta.description, candidate.description);
-  const releaseInfo = useReleaseDates
-    ? firstNonBlank(enrichment?.releaseInfo, meta.releaseInfo, candidate.releaseInfo)
-    : firstNonBlank(meta.releaseInfo, candidate.releaseInfo);
-  const released = useReleaseDates
-    ? firstNonBlank(enrichment?.released, meta.released, candidate.released)
-    : firstNonBlank(meta.released, candidate.released);
+  const releaseInfo = firstNonBlank(meta.releaseInfo, candidate.releaseInfo);
+  const released = firstNonBlank(meta.released, candidate.released);
   const genres =
     useBasicInfo && normalizeGenres(enrichment?.genres).length
       ? normalizeGenres(enrichment.genres)
@@ -1247,6 +1242,7 @@ export class PostPlayRecommendationController {
         return [];
       }
       const firstRecommendation = this.cacheRecommendation(0, firstResolved);
+      this.preloadRecommendationArtwork(firstRecommendation);
       this.state.recommendations = Array.from({ length: this.candidateSeeds.length }, (_, index) =>
         index === 0 ? firstRecommendation : null
       );
@@ -1317,10 +1313,24 @@ export class PostPlayRecommendationController {
             []
           )
         : Promise.resolve([]);
+    // Android filters with locally observed watched state, so a failed tracker
+    // read only narrows the watched filter instead of dropping recommendations.
     const [watchedItemsRaw, progressItemsRaw, traktWatchedMoviesRaw] = await Promise.all([
-      withTimeout(watchedItemsRepository.getAll(), POST_PLAY_RECOMMENDATION_WATCHED_TIMEOUT_MS, []),
       withTimeout(
-        watchProgressRepository.getAllForContinueWatching?.() || watchProgressRepository.getAll(),
+        Promise.resolve()
+          .then(() => watchedItemsRepository.getAll())
+          .catch(() => []),
+        POST_PLAY_RECOMMENDATION_WATCHED_TIMEOUT_MS,
+        []
+      ),
+      withTimeout(
+        Promise.resolve()
+          .then(
+            () =>
+              watchProgressRepository.getAllForContinueWatching?.() ||
+              watchProgressRepository.getAll()
+          )
+          .catch(() => []),
         POST_PLAY_RECOMMENDATION_WATCHED_TIMEOUT_MS,
         []
       ),
@@ -1334,10 +1344,14 @@ export class PostPlayRecommendationController {
     );
     const watchedItemsForRecommendations = seriesSeeds.length
       ? await withTimeout(
-          watchedTitleStateRepository.getTitleWatchedItems(seriesSeeds, {
-            baseWatchedItems: watchedItems,
-            limit: 5000
-          }),
+          Promise.resolve()
+            .then(() =>
+              watchedTitleStateRepository.getTitleWatchedItems(seriesSeeds, {
+                baseWatchedItems: watchedItems,
+                limit: 5000
+              })
+            )
+            .catch(() => watchedItems),
           POST_PLAY_RECOMMENDATION_WATCHED_TIMEOUT_MS,
           watchedItems
         )
@@ -1491,6 +1505,23 @@ export class PostPlayRecommendationController {
 
   awaitCandidateResolution(index, currentMeta = {}, token = this.pipelineToken) {
     return this.startCandidateResolution(index, currentMeta, token);
+  }
+
+  preloadRecommendationArtwork(recommendation = {}) {
+    const url = firstNonBlank(recommendation.backdrop, recommendation.poster);
+    if (!url) {
+      return;
+    }
+    // The post-play overlay mounts the backdrop synchronously. Warm the image
+    // during the prefetch so its decode cannot stall the entrance transition.
+    try {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = url;
+      image.decode?.().catch(() => {});
+    } catch (_) {
+      // Image preloading is best effort.
+    }
   }
 
   cacheRecommendation(index, recommendation) {

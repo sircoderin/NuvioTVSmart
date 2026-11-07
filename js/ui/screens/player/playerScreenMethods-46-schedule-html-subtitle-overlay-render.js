@@ -70,6 +70,12 @@ export function createPlayerScreenMethods46() {
           ...values
         });
       };
+      // VobSub is drawn by the local bitmap decoder; AVPlay remains selected
+      // only to keep the track state, with its own output muted.
+      if (this.bitmapSubtitleTrack) {
+        logTizenSubtitleRendererDiagnostic("delegated-to-bitmap-decoder");
+        return;
+      }
       // SubRip is rendered from the bounded Matroska extractor below. Ignore a
       // late AVPlay callback only while that HTML overlay is active, so a failed
       // extractor can still fall back to native AVPlay rendering.
@@ -173,11 +179,18 @@ export function createPlayerScreenMethods46() {
             body: raw.body,
             selectionToken
           });
+          if (assResult.stale) return false;
           if (assResult.applied && isCurrentSelection()) {
             this.selectedAddonSubtitleId = subtitleId;
             this.selectedSubtitleTrackIndex = -1;
             this.selectedEmbeddedSubtitleTrackIndex = -1;
             this.selectedManifestSubtitleTrackId = null;
+            this.setAddonSubtitleAutoSyncSource({
+              subtitle,
+              subtitleId,
+              rawBody: raw.body,
+              isAss: true
+            });
             this.invalidateTrackDialogCaches();
             this.renderControlButtons();
             this.renderSubtitleDialog();
@@ -195,6 +208,7 @@ export function createPlayerScreenMethods46() {
             this.selectedSubtitleTrackIndex = -1;
             this.selectedEmbeddedSubtitleTrackIndex = -1;
             this.selectedManifestSubtitleTrackId = null;
+            this.setAddonSubtitleAutoSyncSource({ subtitle, subtitleId, cues: fallbackCues });
             this.renderHtmlSubtitleOverlayCue([]);
             this.scheduleHtmlSubtitleOverlayRender();
             this.invalidateTrackDialogCaches();
@@ -228,6 +242,7 @@ export function createPlayerScreenMethods46() {
           this.selectedSubtitleTrackIndex = -1;
           this.selectedEmbeddedSubtitleTrackIndex = -1;
           this.selectedManifestSubtitleTrackId = null;
+          this.setAddonSubtitleAutoSyncSource({ subtitle, subtitleId, cues, rawBody: raw.body });
           this.renderHtmlSubtitleOverlayCue([]);
           this.scheduleHtmlSubtitleOverlayRender();
           this.invalidateTrackDialogCaches();
@@ -277,6 +292,7 @@ export function createPlayerScreenMethods46() {
       this.selectedSubtitleTrackIndex = -1;
       this.selectedEmbeddedSubtitleTrackIndex = -1;
       this.selectedManifestSubtitleTrackId = null;
+      this.setAddonSubtitleAutoSyncSource({ subtitle, subtitleId, cues, rawBody: text });
       this.renderHtmlSubtitleOverlayCue([]);
       this.scheduleHtmlSubtitleOverlayRender();
       this.invalidateTrackDialogCaches();

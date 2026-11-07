@@ -20,7 +20,8 @@ export function createPlayerScreenMethods63() {
     getStreamCardRenderLimit,
     shouldAppendStreamCards,
     flattenStreamGroups,
-    mergeStreamItems
+    mergeStreamItems,
+    streamMergeKey
   } = internals;
 
   return {
@@ -251,6 +252,14 @@ export function createPlayerScreenMethods63() {
       const orderedSources = this.getOrderedStreamCandidates();
       const filters = this.getSourceFilters(orderedSources);
       const filtered = this.getFilteredSources(orderedSources);
+      // Keep the focused source by key: a chunk that inserts a source at the top must not
+      // move the selection to another stream.
+      if (this.sourcesFocus?.zone === "list" && this.sourcesFocus.key) {
+        const keyedIndex = filtered.findIndex((stream) => streamMergeKey(stream) === this.sourcesFocus.key);
+        if (keyedIndex >= 0) {
+          this.sourcesFocus = { ...this.sourcesFocus, index: keyedIndex };
+        }
+      }
       this.ensureSourcesFocus(filters, filtered);
       const cardContext = this.getSourceCardContext();
       const focusIndex = this.sourcesFocus.zone === "list" ? Number(this.sourcesFocus.index || 0) : 0;
@@ -289,15 +298,24 @@ export function createPlayerScreenMethods63() {
           </div>
 
           <div class="player-sources-list">
-            ${this.sourcesLoading ? `<div class="player-sources-empty">${escapeHtml(t("stream_finding_source", {}, "Finding stream source"))}</div>` : ""}
+            ${
+              this.sourcesLoading && !filtered.length
+                ? `<div class="player-sources-empty">${escapeHtml(t("stream_finding_source", {}, "Finding stream source"))}</div>`
+                : ""
+            }
             ${this.sourcesError ? `<div class="player-sources-empty">${escapeHtml(this.sourcesError)}</div>` : ""}
             ${
-              !this.sourcesLoading && !filtered.length
+              !this.sourcesLoading && !filtered.length && !this.sourcesError
                 ? `<div class="player-sources-empty">${escapeHtml(t("sources_no_streams", {}, "No streams found"))}</div>`
                 : filtered
                     .slice(0, renderLimit)
                     .map((stream, index) => this.renderSourceCard(stream, index, cardContext))
                     .join("")
+            }
+            ${
+              this.sourcesLoading && filtered.length
+                ? `<div class="player-sources-empty player-sources-loading-more">${escapeHtml(t("stream_finding_source", {}, "Finding stream source"))}</div>`
+                : ""
             }
           </div>
         `;
@@ -328,6 +346,12 @@ export function createPlayerScreenMethods63() {
 
       const zone = String(this.sourcesFocus?.zone || "filter");
       const index = Number(this.sourcesFocus?.index || 0);
+      if (zone === "list") {
+        const focusedStream = this.getFilteredSources(this.getOrderedStreamCandidates())[index];
+        if (focusedStream) {
+          this.sourcesFocus.key = streamMergeKey(focusedStream);
+        }
+      }
       if (zone === "list" && shouldAppendStreamCards(index, Number(this.sourcesRenderLimit || 0))) {
         this.appendSourceCards(index + 1);
       }

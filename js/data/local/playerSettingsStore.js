@@ -9,6 +9,12 @@ import {
   SUBTITLE_TEXT_OPACITY_DEFAULT,
   normalizeSubtitleTextOpacity
 } from "../../core/player/subtitleTextOpacity.js";
+import { AUTO_SYNC_TOLERANCE_OPTIONS_MS } from "../../core/player/subtitleAutoSyncEngine.js";
+import {
+  HDR_BRIGHTNESS_DEFAULT,
+  normalizeHdrBrightness,
+  normalizeHdrTextColor
+} from "../../core/player/hdrSubtitleStyle.js";
 
 const KEY = "playerSettings";
 
@@ -18,7 +24,6 @@ export const DEFAULT_POST_PLAY_MOVIE_THRESHOLD_PERCENT = 90;
 
 const DEFAULTS = {
   autoplayNextEpisode: false,
-  nextEpisodeCountdownEnabled: true,
   postPlayRecommendationsEnabled: true,
   postPlayMovieThresholdPercent: DEFAULT_POST_PLAY_MOVIE_THRESHOLD_PERCENT,
   // Legacy Web-only switch. Subtitle startup is controlled by the preferred
@@ -33,12 +38,9 @@ const DEFAULTS = {
   skipIntroEnabled: true,
   loadingOverlayEnabled: true,
   showPlayerLoadingStatus: true,
-  minimalBufferingUiEnabled: false,
   pauseOverlayEnabled: true,
   parentalGuideEnabled: true,
   autoSkipSegmentTypes: [],
-  addonSubtitleStartupMode: "ALL_SUBTITLES",
-  addonSubtitleStartupModeAutoPreferred: false,
   nextEpisodeThresholdMode: "PERCENTAGE",
   nextEpisodeThresholdPercent: 99,
   nextEpisodeThresholdMinutesBeforeEnd: 2,
@@ -51,6 +53,7 @@ const DEFAULTS = {
     textColor: "#FFFFFF",
     textOpacity: SUBTITLE_TEXT_OPACITY_DEFAULT,
     bold: false,
+    stripSdh: false,
     outlineEnabled: true,
     outlineColor: "#000000",
     backgroundColor: "#00000000",
@@ -59,13 +62,17 @@ const DEFAULTS = {
     preferredLanguage: "en",
     secondaryPreferredLanguage: "off",
     useForcedSubtitles: false,
-    showOnlyPreferredLanguages: false
+    showOnlyPreferredLanguages: false,
+    autoSyncEnabled: false,
+    autoSyncToleranceMs: 0,
+    autoSyncThorough: true,
+    hdrStyleEnabled: false,
+    hdrTextColor: "#FFFFFF",
+    hdrBrightness: HDR_BRIGHTNESS_DEFAULT,
+    hdrDimPlayerControls: false
   },
   audioAmplificationDb: 0,
   persistAudioAmplification: false,
-  // Legacy combined override from 0.3.14. Kept only so the device-wide,
-  // per-codec webOS compatibility store can migrate an existing preference.
-  forceDtsTrueHdAudio: false,
   // Auto stream selection (matches the Android TV app). When the mode is not
   // MANUAL, pressing play auto-selects a stream and plays it after a countdown.
   streamAutoPlayMode: "MANUAL",
@@ -227,7 +234,15 @@ function normalizeSelectableSubtitleLanguageCode(language, fallback = "off") {
 }
 
 export function normalizePlayerSettings(settings = {}) {
-  const { subtitleDelayMs: _ignoredSubtitleDelayMs, ...persistentSettings } = settings || {};
+  const {
+    subtitleDelayMs: _ignoredSubtitleDelayMs,
+    nextEpisodeCountdownEnabled: _removedCountdown,
+    minimalBufferingUiEnabled: _removedBufferingUi,
+    addonSubtitleStartupMode: _removedSubtitleStartup,
+    addonSubtitleStartupModeAutoPreferred: _removedAutoPreferred,
+    forceDtsTrueHdAudio: _removedAudioOverride,
+    ...persistentSettings
+  } = settings || {};
   const subtitleStyle = {
     ...DEFAULTS.subtitleStyle,
     ...(persistentSettings.subtitleStyle || {})
@@ -281,9 +296,6 @@ export function normalizePlayerSettings(settings = {}) {
   return {
     ...DEFAULTS,
     ...persistentSettings,
-    nextEpisodeCountdownEnabled: Boolean(
-      persistentSettings.nextEpisodeCountdownEnabled ?? DEFAULTS.nextEpisodeCountdownEnabled
-    ),
     postPlayRecommendationsEnabled: Boolean(
       persistentSettings.postPlayRecommendationsEnabled ?? DEFAULTS.postPlayRecommendationsEnabled
     ),
@@ -297,9 +309,6 @@ export function normalizePlayerSettings(settings = {}) {
     ),
     loadingOverlayEnabled: persistentSettings.loadingOverlayEnabled !== false,
     showPlayerLoadingStatus: persistentSettings.showPlayerLoadingStatus !== false,
-    minimalBufferingUiEnabled: Boolean(
-      persistentSettings.minimalBufferingUiEnabled ?? DEFAULTS.minimalBufferingUiEnabled
-    ),
     pauseOverlayEnabled: persistentSettings.pauseOverlayEnabled !== false,
     parentalGuideEnabled: persistentSettings.parentalGuideEnabled !== false,
     autoSkipSegmentTypes: [
@@ -312,14 +321,6 @@ export function normalizePlayerSettings(settings = {}) {
           .filter((entry) => ["intro", "recap", "outro", "movie-credits"].includes(entry))
       )
     ],
-    addonSubtitleStartupMode: ["FAST_STARTUP", "PREFERRED_ONLY", "ALL_SUBTITLES"].includes(
-      String(persistentSettings.addonSubtitleStartupMode || "").toUpperCase()
-    )
-      ? String(persistentSettings.addonSubtitleStartupMode).toUpperCase()
-      : "ALL_SUBTITLES",
-    addonSubtitleStartupModeAutoPreferred: Boolean(
-      persistentSettings.addonSubtitleStartupModeAutoPreferred
-    ),
     streamAutoPlayMode: normalizeStreamAutoPlayMode(
       persistentSettings.streamAutoPlayMode ?? DEFAULTS.streamAutoPlayMode
     ),
@@ -386,10 +387,22 @@ export function normalizePlayerSettings(settings = {}) {
     secondarySubtitleLanguage: secondaryPreferredLanguage,
     subtitleStyle: {
       ...subtitleStyle,
+      stripSdh: subtitleStyle.stripSdh === true,
       preferredLanguage,
       secondaryPreferredLanguage,
       useForcedSubtitles,
-      showOnlyPreferredLanguages: Boolean(subtitleStyle.showOnlyPreferredLanguages)
+      showOnlyPreferredLanguages: Boolean(subtitleStyle.showOnlyPreferredLanguages),
+      autoSyncEnabled: subtitleStyle.autoSyncEnabled === true,
+      autoSyncToleranceMs: AUTO_SYNC_TOLERANCE_OPTIONS_MS.includes(
+        Math.trunc(Number(subtitleStyle.autoSyncToleranceMs))
+      )
+        ? Math.trunc(Number(subtitleStyle.autoSyncToleranceMs))
+        : 0,
+      autoSyncThorough: subtitleStyle.autoSyncThorough !== false,
+      hdrStyleEnabled: subtitleStyle.hdrStyleEnabled === true,
+      hdrTextColor: normalizeHdrTextColor(subtitleStyle.hdrTextColor),
+      hdrBrightness: normalizeHdrBrightness(subtitleStyle.hdrBrightness),
+      hdrDimPlayerControls: subtitleStyle.hdrDimPlayerControls === true
     }
   };
 }

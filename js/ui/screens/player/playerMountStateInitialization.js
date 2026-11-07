@@ -1,3 +1,4 @@
+import { LivePlaybackWatchClock } from "./livePlaybackUi.js";
 /* eslint-disable no-unused-vars */
 import * as internals from "./playerScreenContext.js";
 
@@ -17,6 +18,9 @@ export function initializePlayerMountState(params, initialStreamUrl) {
     createSubtitleOptionVirtualState,
     normalizeParentalWarnings
   } = internals;
+  this.livePlaybackLatched = false;
+  this.liveDurationGrowth = null;
+  this.liveWatchClock = new LivePlaybackWatchClock();
   this.subtitles = [];
   this.embeddedSubtitleTracks = [];
   this.nextEpisodeTransitionMeta = null;
@@ -35,6 +39,11 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.subtitleAutoSyncLoadedTrackKey = "";
   this.subtitleAutoSyncLoadToken = 0;
   this.subtitleAutoSyncCueFocusIndex = 0;
+  this.automaticSubtitleSyncRunToken = 0;
+  this.automaticSubtitleSyncTimer = null;
+  this.automaticSubtitleSyncStartupKey = "";
+  this.autoSyncedSubtitleUrl = "";
+  this.currentAddonSubtitleSource = null;
   this.subtitleDialogTab = "builtIn";
   this.subtitleDialogIndex = 0;
   this.subtitleLanguageRailIndex = 0;
@@ -60,6 +69,8 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.startupAudioPreferenceApplied = false;
   this.startupAudioPreferenceApplying = false;
   this.startupAudioFallbackApplied = false;
+  this.userAudioTrackSelected = false;
+  this.tizenLateAudioPreferenceAttempted = false;
   this.startupAudioTrackSetSignature = "";
   this.startupAudioPreferenceRetryTimer = null;
   this.startupAudioPreferenceRetryDeadline = 0;
@@ -221,6 +232,8 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.postPlayPlayerSurfaceAnimationFrame = null;
   this.postPlayPlayerSurfaceAnimationUsesRaf = false;
   this.postPlayPlayerSurfaceRect = null;
+  this.postPlaySubtitleOutputHidden = false;
+  this.postPlayHiddenTextTrackIndexes = [];
   this.postPlayTrailerMedia = null;
   this.postPlayTrailerMessageHandler = null;
   this.postPlayTrailerGeneration = 0;
@@ -241,7 +254,8 @@ export function initializePlayerMountState(params, initialStreamUrl) {
     onStopTrailer: () => this.stopPostPlayTrailer()
   });
 
-  this.parentalWarnings = normalizeParentalWarnings(params.parentalWarnings || params.parentalGuide);
+  // Match Android: only show localized warnings resolved by the parental guide API.
+  this.parentalWarnings = [];
   this.parentalGuideVisible = false;
   this.parentalGuideExiting = false;
   this.parentalGuideShown = false;
@@ -252,6 +266,12 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.parentalGuideLineAnimationFrame = null;
   this.parentalGuideLineProgress = 0;
   this.skipIntervals = [];
+  this.chapterSkipIntervalsLoaded = false;
+  this.chapterSkipIntervalsRetryAt = 0;
+  this.chaptersRequestToken = 0;
+  this.chaptersFetchInFlight = false;
+  this.skipIntroApiIntervals = [];
+  this.skipIntroChapterIntervals = [];
   this.activeSkipInterval = null;
   this.skipIntervalDismissed = false;
   this.skipIntroAutoHidden = false;
@@ -298,6 +318,7 @@ export function initializePlayerMountState(params, initialStreamUrl) {
   this.silentAudioFallbackCount = 0;
   this.maxSilentAudioFallbackCount = 1;
   this.lastPlaybackErrorAt = 0;
+  this.hasRetriedCurrentStreamAfter416 = false;
   this.failedPlaybackUrls = new Set();
   this.failedPlaybackStreamIds = new Set();
   this.playbackStallTimer = null;

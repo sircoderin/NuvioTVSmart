@@ -48,7 +48,7 @@ export function createStreamScreenMethods04() {
         this.streamInitialResultFocusAssigned = false;
         this.listScrollTop = 0;
         this.addonLogoLookup = {};
-        this.streamFocusUserMoved = false;
+        this.streamUserMovedFocus = false;
       }
 
       if (!preserveExistingResults) {
@@ -177,12 +177,12 @@ export function createStreamScreenMethods04() {
         );
         this.streams = sortStreamsByAddonOrder(this.streams, this.sourceChips);
         this.scheduleDebridPreparation();
-        if (!preserveExistingResults && this.streams.length && !this.streamFocusUserMoved && !this.streamInitialResultFocusAssigned) {
+        if (!preserveExistingResults && this.streams.length && !this.streamUserMovedFocus && !this.streamInitialResultFocusAssigned) {
           this.streamInitialResultFocusAssigned = true;
           this.focusState = { zone: "card", row: 0, action: "play" };
         }
         const firstVisibleChunk = this.loading;
-        if (!firstVisibleChunk && !this.streamFocusUserMoved && this.focusState?.zone === "card") {
+        if (!firstVisibleChunk && !this.streamUserMovedFocus && this.focusState?.zone === "card") {
           // Until the user moves, keep the initial focus on the top result so a
           // slower, higher-ranked source takes the first row when it arrives.
           this.focusState = { zone: "card", row: 0, index: 0, action: "play" };
@@ -270,7 +270,7 @@ export function createStreamScreenMethods04() {
         this.streamSearchCompleted = true;
         this.sourceChips = this.sourceChips.map((chip) => (chip.status === "loading" ? { ...chip, status: "error" } : chip));
         this.loading = false;
-        if (!preserveExistingResults && this.streams.length && !this.streamFocusUserMoved && !this.streamInitialResultFocusAssigned) {
+        if (!preserveExistingResults && this.streams.length && !this.streamUserMovedFocus && !this.streamInitialResultFocusAssigned) {
           this.streamInitialResultFocusAssigned = true;
           this.focusState = { zone: "card", row: 0, action: "play" };
         }
@@ -279,7 +279,7 @@ export function createStreamScreenMethods04() {
           const maxCardIndex = Math.max(0, visibleStreams.length - 1);
           let initialIndex = clamp(Number(this.focusState?.row ?? this.focusState?.index ?? 0), 0, maxCardIndex);
           const preferred = String(this.params?.preferredStreamId || "").trim();
-          if (preferred && !preserveExistingResults && !this.streamFocusUserMoved) {
+          if (preferred && !preserveExistingResults && !this.streamUserMovedFocus) {
             const prefIdx = visibleStreams.findIndex((s) => String(s?.id || "") === preferred);
             if (prefIdx >= 0) {
               initialIndex = prefIdx;
@@ -292,7 +292,7 @@ export function createStreamScreenMethods04() {
             row: rowIndex,
             action: String(this.focusState?.action || "play")
           };
-        } else if (!this.streams.length && !this.streamFocusUserMoved) {
+        } else if (!this.streams.length && !this.streamUserMovedFocus) {
           this.focusState = { zone: "filter", index: 1 };
         }
         this.requestRender();

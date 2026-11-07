@@ -1,3 +1,4 @@
+import { projectCustomPosterSettings, importCustomPosterSettings } from "./profileSettingsSyncCustomPoster.js";
 import { LocalStore } from "../storage/localStore.js";
 
 import { AuthManager } from "../auth/authManager.js";
@@ -96,12 +97,15 @@ export const layout_settings = {
   export(profileId) {
     const layout = LayoutPreferences.getForProfile(profileId);
     return {
+      custom_poster_url_pattern: layout.customPosterUrlPattern || "",
+      custom_poster_enabled_screens: layout.customPosterEnabledScreens.length ? layout.customPosterEnabledScreens.join(",") : "none",
       selected_layout: normalizeHomeLayoutForAndroid(layout.homeLayout),
       has_chosen_layout: Boolean(layout.hasChosenLayout),
       sidebar_collapsed_by_default: Boolean(layout.collapseSidebar),
       modern_sidebar_enabled: Boolean(layout.modernSidebar),
       modern_sidebar_blur_enabled: Boolean(layout.modernSidebarBlur),
       modern_landscape_posters_enabled: Boolean(layout.modernLandscapePostersEnabled),
+      always_show_landscape_clearlogo: Boolean(layout.alwaysShowLandscapeClearlogo),
       modern_hero_full_screen_backdrop: Boolean(layout.modernHeroFullScreenBackdropEnabled),
       hero_section_enabled: Boolean(layout.heroSectionEnabled),
       discover_location: normalizeDiscoverLocationForAndroid(layout.discoverLocation),
@@ -120,7 +124,7 @@ export const layout_settings = {
       focused_poster_backdrop_trailer_playback_target: normalizeTrailerTargetForAndroid(layout.focusedPosterBackdropTrailerPlaybackTarget),
       poster_card_width_dp: Math.max(72, Math.trunc(Number(layout.posterCardWidthDp ?? 126) || 126)),
       poster_card_height_dp: Math.max(108, Math.trunc((Math.trunc(Number(layout.posterCardWidthDp ?? 126) || 126) * 3) / 2)),
-      poster_card_corner_radius_dp: Math.max(0, Math.trunc(Number(layout.posterCardCornerRadiusDp ?? 12) || 12)),
+      poster_card_corner_radius_dp: Math.max(0, Math.trunc(Number(layout.posterCardCornerRadiusDp ?? 12))),
       card_depth_enabled: Boolean(layout.cardDepthEnabled),
       card_depth_edge_strength: Math.min(100, Math.max(0, Math.trunc(Number(layout.cardDepthEdgeStrength ?? 28) || 0))),
       card_depth_sheen_strength: Math.min(100, Math.max(0, Math.trunc(Number(layout.cardDepthSheenStrength ?? 10) || 0))),
@@ -135,6 +139,7 @@ export const layout_settings = {
       prefer_external_meta_addon_detail: layout.preferExternalMetaAddonDetail !== false,
       show_full_release_date: layout.showFullReleaseDate !== false,
       blur_unwatched_episodes: Boolean(layout.blurUnwatchedEpisodes),
+      random_episode_enabled: Boolean(layout.randomEpisodeEnabled),
       hide_unreleased_content: Boolean(layout.hideUnreleasedContent),
       use_episode_thumbnails_in_cw: layout.useEpisodeThumbnailsInCw !== false,
       blur_continue_watching_next_up: Boolean(layout.blurContinueWatchingNextUp),
@@ -160,6 +165,7 @@ export const layout_settings = {
       "modern_sidebar_enabled",
       "modern_sidebar_blur_enabled",
       "modern_landscape_posters_enabled",
+      "always_show_landscape_clearlogo",
       "modern_hero_full_screen_backdrop",
       "hero_section_enabled",
       "poster_labels_enabled",
@@ -171,6 +177,7 @@ export const layout_settings = {
       "focused_poster_backdrop_trailer_muted",
       "detail_page_trailer_button_enabled",
       "blur_unwatched_episodes",
+      "random_episode_enabled",
       "hide_unreleased_content",
       "use_episode_thumbnails_in_cw",
       "blur_continue_watching_next_up",
@@ -210,6 +217,7 @@ export const layout_settings = {
     }
     if (stringOrNull(raw.continue_watching_card_style))
       projected.continue_watching_card_style = String(raw.continue_watching_card_style).toUpperCase();
+    Object.assign(projected, projectCustomPosterSettings(raw));
     if (Array.isArray(raw.hero_catalog_keys)) projected.hero_catalog_keys = raw.hero_catalog_keys.map(String).filter(Boolean);
     ["card_depth_edge_strength", "card_depth_sheen_strength", "card_depth_edge_coverage"].forEach((key) => {
       if (numberOrNull(raw[key]) != null) projected[key] = Math.min(100, Math.max(0, Math.trunc(Number(raw[key]))));
@@ -231,7 +239,7 @@ export const layout_settings = {
     }
     return projected;
   },
-  import(profileId, rawFeature = {}) {
+  import(profileId, rawFeature = {}, { isRemoteFeaturePresent = false } = {}) {
     const raw = normalizeFeaturePayload(rawFeature);
     const partial = {};
     if (stringOrNull(raw.selected_layout)) {
@@ -251,6 +259,9 @@ export const layout_settings = {
     }
     if (booleanOrNull(raw.modern_landscape_posters_enabled) != null) {
       partial.modernLandscapePostersEnabled = Boolean(raw.modern_landscape_posters_enabled);
+    }
+    if (booleanOrNull(raw.always_show_landscape_clearlogo) != null) {
+      partial.alwaysShowLandscapeClearlogo = Boolean(raw.always_show_landscape_clearlogo);
     }
     if (booleanOrNull(raw.modern_hero_full_screen_backdrop) != null) {
       partial.modernHeroFullScreenBackdropEnabled = Boolean(raw.modern_hero_full_screen_backdrop);
@@ -274,6 +285,7 @@ export const layout_settings = {
     }
     if (booleanOrNull(raw.classic_focus_gradient_enabled) != null)
       partial.classicFocusGradientEnabled = Boolean(raw.classic_focus_gradient_enabled);
+    Object.assign(partial, importCustomPosterSettings(raw, isRemoteFeaturePresent));
     if (Array.isArray(raw.hero_catalog_keys)) partial.heroCatalogKeys = raw.hero_catalog_keys.map(String).filter(Boolean);
     if (stringOrNull(raw.continue_watching_card_style))
       partial.continueWatchingCardStyle = String(raw.continue_watching_card_style).toLowerCase();
@@ -327,6 +339,7 @@ export const layout_settings = {
     if (booleanOrNull(raw.detail_page_trailer_button_enabled) != null) {
       partial.detailPageTrailerButtonEnabled = Boolean(raw.detail_page_trailer_button_enabled);
     }
+    if (booleanOrNull(raw.random_episode_enabled) != null) partial.randomEpisodeEnabled = Boolean(raw.random_episode_enabled);
     if (booleanOrNull(raw.blur_unwatched_episodes) != null) {
       partial.blurUnwatchedEpisodes = Boolean(raw.blur_unwatched_episodes);
     }

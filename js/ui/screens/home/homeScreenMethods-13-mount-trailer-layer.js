@@ -46,11 +46,18 @@ export function createHomeScreenMethods13() {
           if (!data || typeof data !== "object" || data.source !== "nuvio-youtube-proxy") {
             return;
           }
+          if (data.type === "ended" || data.type === "error") {
+            frame.dataset.ambientTrailerPlaying = "false";
+          }
           if (data.type === "firstFrame") {
+            frame.dataset.ambientTrailerPlaying = "true";
             reveal(150);
             return;
           }
           const state = data.type === "state" && data.state && typeof data.state === "object" ? data.state : null;
+          if (state) {
+            frame.dataset.ambientTrailerPlaying = String(state.paused === false && state.loading === false);
+          }
           if (state && Number(state.currentTime || 0) > 0 && state.paused === false) {
             reveal(150);
           } else if (state && state.controllable === false && state.loading === false) {
@@ -180,11 +187,9 @@ export function createHomeScreenMethods13() {
         }
         target.classList.remove("is-expanded", "is-trailer-active", "is-expanded-backdrop-ready");
         const trailerLayer = target.querySelector(".home-poster-trailer-layer");
-        if (this.shouldUseImmediateFocusScroll()) {
-          this.scheduleTrailerLayerCleanup(trailerLayer);
-        } else {
-          this.clearTrailerLayer(trailerLayer);
-        }
+        // Tearing down a YouTube frame blocks the main thread for ~0.4s on TVs;
+        // pause and hide now, destroy after the collapse/sidebar animation.
+        this.scheduleTrailerLayerCleanup(trailerLayer);
         if (instant && target instanceof HTMLElement) {
           void target.offsetWidth;
           requestAnimationFrame(() => {
@@ -199,11 +204,7 @@ export function createHomeScreenMethods13() {
       });
       if (!preserveHeroMedia) {
         const heroLayer = this.container?.querySelector(".home-hero-trailer-layer");
-        if (this.shouldUseImmediateFocusScroll()) {
-          this.scheduleTrailerLayerCleanup(heroLayer);
-        } else {
-          this.clearTrailerLayer(heroLayer);
-        }
+        this.scheduleTrailerLayerCleanup(heroLayer);
         this.setHeroTrailerActive(false);
         this.heroTrailerPlaybackState = null;
       }

@@ -242,7 +242,7 @@ test("a slower first-ranked source takes initial focus until the user moves", as
       options.onChunk({ status: "success", data: [group("Quick", 1, "quick")] });
       await flush();
       if (userMoved) {
-        screen.streamFocusUserMoved = true;
+        screen.streamUserMovedFocus = true;
         screen.focusState = { zone: "card", row: 0, action: "native" };
       }
       options.onChunk({ status: "success", data: [group("Preferred", 0, "preferred")] });

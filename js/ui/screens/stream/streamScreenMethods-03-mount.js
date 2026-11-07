@@ -1,3 +1,4 @@
+import { activeStreamLinkProfile } from "../../../data/local/streamLinkCacheStore.js";
 /* eslint-disable no-unused-vars */
 import * as internals from "./streamScreen.js";
 
@@ -24,11 +25,13 @@ export function createStreamScreenMethods03() {
       this.container = document.getElementById("stream");
       ScreenUtils.show(this.container);
       this.params = params || {};
+      this.bindStreamParty();
+      this.streamLinkCacheProfileId = activeStreamLinkProfile();
       this.streamBackNavigationInProgress = false;
       this.stopStreamVirtualization();
       this.streamVirtualHeights = new Map();
       this.streamVirtualFocusReset = false;
-      this.streamFocusUserMoved = false;
+      this.streamUserMovedFocus = false;
       this.streamLastNavigationRepeatAt = 0;
       this.loadToken = (this.loadToken || 0) + 1;
       const token = this.loadToken;
@@ -105,7 +108,7 @@ export function createStreamScreenMethods03() {
           ? navigationContext.restoredState
           : null;
       if (restored) {
-        this.streamFocusUserMoved = true;
+        this.streamUserMovedFocus = true;
         this.streamInitialResultFocusAssigned = true;
         this.loading = Boolean(restored.loading);
         this.error = String(restored.error || "");
@@ -154,6 +157,8 @@ export function createStreamScreenMethods03() {
         }
         return;
       }
+
+      if (!navigationContext?.isBackNavigation && this.tryResumeCachedStreamLink()) return;
 
       // Match Android's initial stream load: reuse the repository-owned session
       // when its request key is still valid. Explicit refresh actions remain the

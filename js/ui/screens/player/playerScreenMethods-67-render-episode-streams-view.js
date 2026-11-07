@@ -4,6 +4,7 @@ import * as internals from "./playerScreenContext.js";
 export function createPlayerScreenMethods67() {
   const {
     PlayerController,
+    PlayerSettingsStore,
     streamRepository,
     StreamBadgeSettingsStore,
     Router,
@@ -281,6 +282,9 @@ export function createPlayerScreenMethods67() {
     },
     hideEpisodePanel() {
       streamRepository.setLocalPluginSearchPaused(true);
+      this.clearEpisodePanelLongPressTimer?.();
+      this.episodePanelPendingSelect = false;
+      this.closeEpisodeOptionsDialog?.();
       this.episodePanelVisible = false;
       this.episodePanelStreamLoadToken = Number(this.episodePanelStreamLoadToken || 0) + 1;
       const panel = this.uiRefs?.root?.querySelector("#episodeSidePanel");
@@ -296,7 +300,7 @@ export function createPlayerScreenMethods67() {
       this.updateModalBackdrop();
       this.resetControlsAutoHide();
     },
-    async playEpisodeFromPanel(selectedStream = null) {
+    async playEpisodeFromPanel(selectedStream = null, { manualSelection = false } = {}) {
       if (this.switchingEpisode || !this.episodes.length) {
         return;
       }
@@ -305,9 +309,16 @@ export function createPlayerScreenMethods67() {
         return;
       }
       streamRepository.setLocalPluginSearchPaused(true);
+      const settings = PlayerSettingsStore.get() || {};
+      const autoPlayMode = String(settings.streamAutoPlayMode || "MANUAL").toUpperCase();
       if (!selectedStream && this.episodePanelMode !== "streams") {
-        await this.openEpisodeStreamsView();
-        return;
+        // Android autoplays the chosen episode when stream auto-play is not manual;
+        // just like the next-episode flow, load the sources (cache included) and pick
+        // the best one without opening the picker.
+        if (manualSelection || autoPlayMode === "MANUAL" || selected.available === false) {
+          await this.openEpisodeStreamsView();
+          return;
+        }
       }
       this.switchingEpisode = true;
       try {
@@ -321,7 +332,13 @@ export function createPlayerScreenMethods67() {
         if (!streamItems.length) {
           return;
         }
-        const bestStreamCandidate = selectedStream || this.selectBestStreamCandidate(streamItems) || streamItems[0];
+        const bestStreamCandidate =
+          selectedStream ||
+          (await this.selectNextEpisodeStreamByAutoPlayPolicy?.(streamItems, settings, {
+            nextEpisode: selected
+          })) ||
+          this.selectBestStreamCandidate(streamItems) ||
+          streamItems[0];
         const bestStream = streamDirectPlaybackUrl(bestStreamCandidate) || null;
         const nextEpisode = this.episodes[this.episodePanelIndex + 1] || null;
         await PlayerController.flushCurrentProgress({ allowCloudSync: false });

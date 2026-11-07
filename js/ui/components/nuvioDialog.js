@@ -55,6 +55,7 @@ export class NuvioDialog {
     actionsClassName = "",
     content = null,
     onVerticalNavigate = null,
+    onKey = null,
     suppressEnterUntilKeyUp = false
   }) {
     this.title = title;
@@ -67,6 +68,7 @@ export class NuvioDialog {
     this.actionsClassName = actionsClassName;
     this.content = content;
     this.onVerticalNavigate = onVerticalNavigate;
+    this.onKey = onKey;
     this.suppressEnterUntilKeyUp = Boolean(suppressEnterUntilKeyUp);
 
     this._focusedIndex = 0;
@@ -110,6 +112,8 @@ export class NuvioDialog {
   }
 
   mount(container = document.body) {
+    this._ambientHandler = () => this._dismiss();
+    document.addEventListener("nuvio:ambient-shown", this._ambientHandler);
     // Backdrop
     const backdrop = document.createElement("div");
     backdrop.className = "nuvio-dialog-backdrop";
@@ -267,6 +271,12 @@ export class NuvioDialog {
       return;
     }
 
+    if (typeof this.onKey === "function" && this.onKey(key) === true) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
     if (key.isDown || key.isRight) {
       if (
         key.isDown &&
@@ -332,6 +342,7 @@ export class NuvioDialog {
   destroy({ afterExit = null } = {}) {
     if (this._destroyed) return;
     this._destroyed = true;
+    document.removeEventListener("nuvio:ambient-shown", this._ambientHandler);
     window.removeEventListener("keydown", this._keyHandler, { capture: true });
     window.removeEventListener("keyup", this._keyUpHandler, { capture: true });
 

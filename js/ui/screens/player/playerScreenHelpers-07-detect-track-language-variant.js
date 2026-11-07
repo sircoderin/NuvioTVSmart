@@ -76,8 +76,6 @@ import { StreamBadgeSettingsStore } from "../../../data/local/streamBadgeSetting
 
 import { TorrentSettingsStore } from "../../../data/local/torrentSettingsStore.js";
 
-import { WebOsAudioCompatibilityStore } from "../../../data/local/webOsAudioCompatibilityStore.js";
-
 import { matchStreamBadges } from "../../../core/streams/streamBadgeRules.js";
 
 import { hasReleaseToken } from "../../../core/streams/releaseToken.js";
@@ -240,7 +238,12 @@ export function detectTrackLanguageVariant(track = {}, language = getTrackLangua
   if (!normalizedLanguage) {
     return "";
   }
-  if (normalizedLanguage === "pt-br" || normalizedLanguage === "es-419") {
+  if (
+    normalizedLanguage === "pt-br" ||
+    normalizedLanguage === "es-419" ||
+    normalizedLanguage === "zh-ca" ||
+    normalizedLanguage === "sr-me"
+  ) {
     return normalizedLanguage;
   }
   const baseLanguage = normalizedLanguage.split("-")[0];
@@ -353,7 +356,8 @@ export function formatClock(date = new Date(), webOsLocaleInfo = null) {
   const hour12 = resolveSystemHour12({
     tizenApi: typeof tizen !== "undefined" ? tizen : null,
     webOsLocaleInfo,
-    intlApi: typeof Intl !== "undefined" ? Intl : null
+    intlApi: typeof Intl !== "undefined" ? Intl : null,
+    locale
   });
   const localeKey = `${String(locale || "__default__")}:${String(hour12)}`;
   const options = buildClockFormatOptions(hour12);
@@ -389,10 +393,13 @@ export function clamp(value, min, max) {
 }
 
 export function hasExplicitSubtitleVerticalPosition(snapshot) {
+  if (snapshot?.vertical) return true;
   const rawLine = snapshot?.line;
   if (rawLine == null || String(rawLine).trim().toLowerCase() === "auto") {
     return false;
   }
   const line = Number(rawLine);
-  return Number.isFinite(line) && line !== -1;
+  if (!Number.isFinite(line)) return false;
+  // Android preserves top/middle placements, normalizing only bottom cues.
+  return snapshot?.snapToLines === false ? line < 60 : line >= 0;
 }

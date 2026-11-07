@@ -7,6 +7,7 @@ const SUPPORTED_LOCALES = [
   "en",
   "ar",
   "bg",
+  "bn",
   "bs",
   "cs",
   "da",
@@ -17,6 +18,7 @@ const SUPPORTED_LOCALES = [
   "fr",
   "he",
   "hi",
+  "hr",
   "hu",
   "id",
   "it",
@@ -49,6 +51,7 @@ const KEY_ALIASES = {
   "common.normal": "player_speed_normal",
   "common.notSet": "mdblist_not_set",
   "common.off": "subtitle_off",
+  "common.on": "subtitle_style_on",
   "common.retry": "action_retry",
   "common.save": "action_save",
   "common.systemDefault": "appearance_language_system",
@@ -718,6 +721,19 @@ export const I18n = {
 
     warnMissingKey(locale, key);
     return interpolate(options?.fallback ?? key, params);
+  },
+
+  getQuantityString(key, count, params = [count]) {
+    const locale = this.getLocale();
+    let category = Number(count) === 1 ? "one" : "other";
+    try {
+      if (typeof globalThis.Intl?.PluralRules === "function")
+        category = new Intl.PluralRules(locale).select(Number(count));
+    } catch (_) {
+      /* Fall back to the available one/other forms on older TVs. */
+    }
+    const selected = `${key}_${category}`;
+    return this.t(typeof activeMessages[selected] === "string" ? selected : `${key}_other`, params);
   },
 
   apply() {

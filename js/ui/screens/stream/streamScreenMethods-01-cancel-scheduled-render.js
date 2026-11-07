@@ -104,7 +104,7 @@ export function createStreamScreenMethods01() {
           return marginBottom;
         }
       }
-      this.streamVirtualRowGap = this.isLegacyWebOsRoute() ? 10 : 18;
+      this.streamVirtualRowGap = 40;
       return this.streamVirtualRowGap;
     },
     getStreamVirtualModel(streams = this.streamVirtualItems) {
@@ -166,7 +166,8 @@ export function createStreamScreenMethods01() {
             streamKey: model.keys[index],
             virtualized: true,
             virtualRowGap: model.rowGap,
-            virtualLast: index === streams.length - 1
+            virtualLast: index === streams.length - 1,
+            previousStream: streams[index - 1] || null
           })
         );
       }
@@ -283,14 +284,16 @@ export function createStreamScreenMethods01() {
 
       const focused = this.focusedElement;
       const restoreFocusedAction = focused && list.contains(focused) ? String(focused.dataset?.cardAction || "play") : "";
+      const streamBadgesEnabled = DebridSettingsStore.get().streamBadgesEnabled !== false;
       const badgeSettings = StreamBadgeSettingsStore.snapshot();
       windowNode.innerHTML = Array.from({ length: Math.max(0, virtualWindow.end - virtualWindow.start + 1) }, (_, offset) => {
         const index = virtualWindow.start + offset;
-        return this.renderStreamCard(streams[index], index, DebridSettingsStore.get().streamBadgesEnabled !== false, badgeSettings, {
+        return this.renderStreamCard(streams[index], index, streamBadgesEnabled, badgeSettings, {
           streamKey: model.keys[index],
           virtualized: true,
           virtualRowGap: model.rowGap,
-          virtualLast: index === streams.length - 1
+          virtualLast: index === streams.length - 1,
+          previousStream: streams[index - 1] || null
         });
       }).join("");
       const topSpacer = track.querySelector('[data-stream-virtual-spacer="top"]');

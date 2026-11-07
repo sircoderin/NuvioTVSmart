@@ -190,6 +190,7 @@ export function createPlayerScreenMethods34() {
       this.subtitleDelayOverlayVisible = false;
       this.subtitleTimingDialogVisible = false;
       this.resetSubtitleAutoSyncState();
+      this.resetAutomaticSubtitleSyncState({ resetStartupKey: true });
       this.audioDialogVisible = false;
       this.speedDialogVisible = false;
       if (!preserveWebOsTrackSelections) {
@@ -202,6 +203,8 @@ export function createPlayerScreenMethods34() {
         this.startupAudioPreferenceApplied = false;
         this.startupAudioPreferenceApplying = false;
         this.startupAudioFallbackApplied = false;
+        this.userAudioTrackSelected = false;
+        this.tizenLateAudioPreferenceAttempted = false;
         this.startupAudioTrackSetSignature = "";
         this.builtInSubtitleCount = 0;
         this.embeddedSubtitleTracks = [];
@@ -224,7 +227,28 @@ export function createPlayerScreenMethods34() {
       this.clearTrackDiscoveryTimer();
       this.trackDiscoveryStartedAt = 0;
       this.trackDiscoveryDeadline = 0;
+      const previousPlaybackUrl = this.activePlaybackUrl;
       this.activePlaybackUrl = streamUrl;
+      if (previousPlaybackUrl !== streamUrl) {
+        this.hasRetriedCurrentStreamAfter416 = false;
+        this.resetLivePlaybackState?.();
+        this.skipIntervals = [];
+        this.activeSkipInterval = null;
+        this.skipIntervalDismissed = false;
+        this.skipIntroAutoHidden = false;
+        this.skipIntroCountdownProgress = 0;
+        this.skipIntroSuppressedKey = "";
+        this.skipIntroSuppressedUntil = 0;
+        this.stopSkipIntroCountdownAnimation?.();
+        this.chapterSkipIntervalsLoaded = false;
+        this.chapterSkipIntervalsRetryAt = 0;
+        this.playerChapters = [];
+        this.closeChaptersPanel?.({ restoreFocus: false });
+        this.chaptersRequestToken = Number(this.chaptersRequestToken || 0) + 1;
+        this.skipIntroApiIntervals = [];
+        this.skipIntroChapterIntervals = [];
+        void this.fetchSkipIntervals();
+      }
       this.currentEngineFsStream = nextEngineFsState || null;
       if (this.currentEngineFsStream) {
         this.engineFsPlaybackToken = claimEngineFsPlayback(this.currentEngineFsStream);
@@ -232,6 +256,7 @@ export function createPlayerScreenMethods34() {
       } else {
         this.engineFsPlaybackToken = "";
         this.stopEngineFsKeepAlive();
+        this.prefetchTizenEmbeddedAudioTracks(streamUrl, sourceCandidate);
       }
       this.embeddedTrackRequestPromise = null;
       this.embeddedTrackRequestUrl = "";
@@ -269,7 +294,6 @@ export function createPlayerScreenMethods34() {
         }
       }
       this.loadSubtitles();
-      this.loadManifestTrackDataForCurrentStream(this.activePlaybackUrl);
       this.startTrackDiscoveryWindow({
         durationMs: prioritizeWebOsRemoteMkvPlayback ? WEBOS_REMOTE_MKV_AUDIO_GATE_MAX_WAIT_MS : 7000
       });
@@ -292,11 +316,26 @@ export function createPlayerScreenMethods34() {
       this.renderSubtitleDialog();
       this.renderAudioDialog();
       this.renderSpeedDialog();
+      const loadTrackDataAfterPlayback = (playbackUrl) => {
+        if (!this.isActiveMountToken(mountToken) || this.activePlaybackUrl !== playbackUrl) {
+          return;
+        }
+        this.loadManifestTrackDataForCurrentStream(playbackUrl);
+      };
       if (!prioritizeWebOsRemoteMkvPlayback) {
-        startPlayback(this.activePlaybackUrl, playbackContext, {
+        // Let the player own the first manifest request. Some live providers
+        // allow a single connection and reject the extra probe at startup.
+        const playbackUrl = this.activePlaybackUrl;
+        const playbackPromise = startPlayback(playbackUrl, playbackContext, {
           mountToken,
           sourceCandidate
         });
+        void playbackPromise.then(
+          () => loadTrackDataAfterPlayback(playbackUrl),
+          () => loadTrackDataAfterPlayback(playbackUrl)
+        );
+      } else {
+        loadTrackDataAfterPlayback(this.activePlaybackUrl);
       }
       this.paused = false;
       this.refreshTrackDialogs();

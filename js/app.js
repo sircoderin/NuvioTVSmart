@@ -1,8 +1,13 @@
+import "./ui/components/serverWatchedNotice.js";
+import { MediaServerSyncService } from "./core/profile/mediaServerSyncService.js";
+import { installCustomPosterFallback } from "./core/poster/customPoster.js";
+import { installWebOsImgurImageFallback } from "./core/media/imageProxy.js";
+import { AmbientMode } from "./ui/ambient/ambientMode.js";
 /* global __NUVIO_APP_VERSION__ */
 
 import "./core/diagnostics/consoleDebugBuffer.js";
 import { detailWatchedEnrichmentService } from "./data/repository/detailWatchedEnrichmentService.js";
-import { Router } from "./ui/navigation/router.js";
+import { NON_BACKSTACK_ROUTES, Router } from "./ui/navigation/router.js";
 import { FocusEngine } from "./ui/navigation/focusEngine.js";
 import { PlayerController } from "./core/player/playerController.js";
 import { AuthManager } from "./core/auth/authManager.js";
@@ -29,6 +34,13 @@ import { shouldShowUpdate } from "./core/update/updateBannerPolicy.js";
 import { showAppUpdatePrompt } from "./ui/components/appUpdatePrompt.js";
 import { resolveExperienceRoute } from "./core/profile/experienceModeRouting.js";
 import { PluginRuntime } from "./core/player/pluginRuntime.js";
+import { installPartyEffects } from "./ui/screens/party/partyEffects.js";
+import {
+  hasPendingLaunchDeepLink,
+  openPendingLaunchDeepLink,
+  takeTizenLaunchDeepLink,
+  takeWebOsLaunchDeepLink
+} from "./core/deeplink/launchDeepLink.js";
 
 // These legacy Web-only overrides are no longer user settings. Navigation now
 // uses the stable grid algorithm and simulator detection automatically.
@@ -61,6 +73,29 @@ let updateCheckStarted = false;
 const APP_VERSION = typeof __NUVIO_APP_VERSION__ !== "undefined" ? __NUVIO_APP_VERSION__ : "0.0.0";
 const UPDATE_DISMISSED_TAG_KEY = "app_update_dismissed_tag";
 const UPDATE_ROUTE_WAIT_TIMEOUT_MS = 60_000;
+
+// Settings icons are Material Icons ligatures from Google Fonts. The font only
+// downloads on first use, so the first Settings open painted "grid_view",
+// "palette"... as text. Fetch it at startup and keep ligatures hidden until it
+// is ready; after 3 s (offline) the names show again as before.
+function preloadMaterialIconFont() {
+  const root = document.documentElement;
+  const markReady = () => root.classList.add("material-icons-ready");
+  const timer = setTimeout(markReady, 3000);
+  try {
+    Promise.resolve(document.fonts?.load?.('24px "Material Icons"', "home"))
+      .then((faces) => {
+        if (Array.isArray(faces) && faces.length) {
+          clearTimeout(timer);
+          markReady();
+        }
+      })
+      .catch(() => {});
+  } catch (_) {
+    clearTimeout(timer);
+    markReady();
+  }
+}
 
 function markBootStage(stage) {
   const guard = globalThis.NuvioBootGuard;
@@ -208,14 +243,6 @@ function applyPerformanceMode() {
   );
 }
 
-// Settings exposes a performance mode (auto/full/reduced). Re-apply the
-// root/body classes when the user changes it (see tvRuntimePerformance.js).
-if (typeof globalThis.addEventListener === "function") {
-  globalThis.addEventListener("nuvio:performance-mode", () => {
-    applyPerformanceMode();
-  });
-}
-
 function isAddonRemoteMode() {
   try {
     return new URLSearchParams(window.location.search).get("addonsRemote") === "1";
@@ -289,15 +316,19 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
     .catch((error) => {
       console.warn("Stream badge image prerender failed", error);
     });
-  const resumeRoute =
+  const storedResumeRoute =
     restoreWebOsRoute && typeof Router.consumeWebOsResumeRoute === "function"
       ? Router.consumeWebOsResumeRoute()
       : null;
+  // A launch with a title deep link opens that title from Home, not the screen left last time.
+  const resumeRoute = hasPendingLaunchDeepLink() ? null : storedResumeRoute;
   const isHomeResumeRoute = resumeRoute?.route === "home";
 
   if (experienceRoute !== "home") {
     await Router.navigate(experienceRoute, {}, { replaceHistory: true, skipStackPush: true });
   } else if (resumeRoute?.route && !isHomeResumeRoute) {
+    // Keep Home under the restored screen so Back returns into the app.
+    Router.seedWebOsResumeBackStack?.();
     await Router.navigate(resumeRoute.route, resumeRoute.params || {}, {
       replaceHistory: true,
       skipStackPush: true
@@ -373,12 +404,13 @@ function setupWebOsAppLifecycle() {
   // webOS keeps the app resident when it is backgrounded. Re-opening can fire
   // a launch event on the existing JS context instead of reloading the page.
   let recovering = false;
-  const recover = async () => {
+  const recover = async ({ titleLaunch = false } = {}) => {
     if (recovering || !appShellRendered) {
       return;
     }
     void DeviceSessionRegistration.requestForegroundRegistration();
     ProviderCredentialSyncService.requestForegroundPull();
+    MediaServerSyncService.requestForegroundPull();
     StartupSyncService.requestForegroundSync();
     const current = Router.getCurrent();
     if (!current) {
@@ -390,7 +422,9 @@ function setupWebOsAppLifecycle() {
         document.body.style.removeProperty("display");
       }
       const shouldReturnHome = !Router.isWebOsResumeRouteRestorable(current);
-      if (shouldReturnHome) {
+      if (await openPendingLaunchDeepLink(Router, NON_BACKSTACK_ROUTES)) {
+        // Relaunched with a title deep link: its detail screen, not the resumed route.
+      } else if (shouldReturnHome && !titleLaunch && !NON_BACKSTACK_ROUTES.has(current)) {
         await Router.navigate(
           "home",
           {},
@@ -412,10 +446,13 @@ function setupWebOsAppLifecycle() {
     }
   };
 
+  takeWebOsLaunchDeepLink();
+
   document.addEventListener(
     "webOSRelaunch",
-    () => {
-      void recover();
+    (event) => {
+      const link = takeWebOsLaunchDeepLink({ params: event.detail });
+      void recover({ titleLaunch: Boolean(link) });
     },
     true
   );
@@ -423,8 +460,9 @@ function setupWebOsAppLifecycle() {
   // webOS 4.x may fire webOSLaunch instead of webOSRelaunch when resuming.
   document.addEventListener(
     "webOSLaunch",
-    () => {
-      void recover();
+    (event) => {
+      const link = takeWebOsLaunchDeepLink({ params: event.detail });
+      void recover({ titleLaunch: Boolean(link) });
     },
     true
   );
@@ -465,6 +503,7 @@ function setupProviderCredentialForegroundLifecycle() {
     if (!wasBackgrounded) return;
     wasBackgrounded = false;
     ProviderCredentialSyncService.requestForegroundPull();
+    MediaServerSyncService.requestForegroundPull();
     StartupSyncService.requestForegroundSync();
   };
   document.addEventListener("visibilitychange", () => {
@@ -491,6 +530,21 @@ function setupProviderCredentialForegroundLifecycle() {
     wasBackgrounded = true;
   });
   window.addEventListener("focus", requestAfterBackground);
+}
+
+/**
+ * Samsung Tizen title deep links: the link a launch carries waits through startup, as on webOS. An app opened again
+ * while it runs gets an appcontrol event on the same page, with the new request.
+ */
+function setupTizenAppControlLifecycle() {
+  if (!Platform.isTizen()) return;
+
+  takeTizenLaunchDeepLink();
+  window.addEventListener("appcontrol", () => {
+    if (takeTizenLaunchDeepLink() && appShellRendered) {
+      void openPendingLaunchDeepLink(Router, NON_BACKSTACK_ROUTES);
+    }
+  });
 }
 
 function setupTizenPlaybackLifecycle() {
@@ -586,9 +640,15 @@ async function bootstrapApp() {
   Router.init();
   PlayerController.init();
 
+  installCustomPosterFallback();
+  preloadMaterialIconFont();
+  installWebOsImgurImageFallback();
+  MediaServerSyncService.start();
+  AmbientMode.start();
   FocusEngine.init();
   setupProviderCredentialForegroundLifecycle();
   setupTizenPlaybackLifecycle();
+  setupTizenAppControlLifecycle();
   setupPluginRuntimeLifecycle();
   setupWebOsAppLifecycle();
 
@@ -609,12 +669,14 @@ async function bootstrapApp() {
     if (state === AuthState.LOADING) {
       StartupSyncService.stop();
       ProviderCredentialSyncService.cancelForegroundPull();
+      void MediaServerSyncService.stop();
       return;
     }
 
     if (state === AuthState.SIGNED_OUT) {
       StartupSyncService.stop();
       ProviderCredentialSyncService.cancelForegroundPull();
+      void MediaServerSyncService.stop();
       hasSelectedProfileThisSession = false;
       const shouldBypassQr = Boolean(LocalStore.get(GUEST_QR_BYPASS_KEY, false));
       if (isSignedOutRouteAllowed()) {
@@ -680,6 +742,7 @@ async function bootstrapApp() {
 
   markBootStage("Checking authentication");
   await AuthManager.bootstrap();
+  installPartyEffects();
 }
 
 async function bootstrapAddonRemoteMode() {

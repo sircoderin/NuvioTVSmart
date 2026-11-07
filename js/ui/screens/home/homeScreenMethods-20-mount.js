@@ -85,6 +85,7 @@ export function createHomeScreenMethods20() {
         this.hasAppliedInitialContinueWatchingFocus = false;
         this.sidebarProfile = null;
         this.savedFocusStates = {};
+        this.homeRowVirtualWindow = null;
       }
       if (returnFocusState?.layoutMode) {
         this.savedFocusStates = {
@@ -97,7 +98,9 @@ export function createHomeScreenMethods20() {
       const isHomeRouteReturn = Boolean(navigationContext?.isBackNavigation || (previousRoute && previousRoute !== "home"));
       let shouldRepaintPreservedHome = false;
       if (isHomeRouteReturn && this.hasLoadedOnce && Array.isArray(this.rows) && this.rows.length) {
-        const renderedCatalogRowKeys = getRenderedHomeCatalogRowKeys(this.container);
+        const renderedCatalogRowKeys = this.homeRowVirtualWindow
+          ? getHomeCatalogRowKeys(this.rows)
+          : getRenderedHomeCatalogRowKeys(this.container);
         this.collections = CollectionsStore.get();
         this.rows = this.sortAndFilterRows(this.rows, this.collections);
         shouldRepaintPreservedHome = Boolean(

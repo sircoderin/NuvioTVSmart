@@ -120,7 +120,7 @@ export function createHomeScreenMethods19() {
       if (direction === "up" || direction === "down") {
         const delta = direction === "up" ? -1 : 1;
         const targetRow = row + delta;
-        const targetRowNodes = nav.rows[targetRow] || null;
+        const targetRowNodes = this.getVirtualHomeAdjacentRow?.(current, delta) ?? nav.rows[targetRow] ?? null;
         if (!targetRowNodes || !targetRowNodes.length) {
           return true;
         }
@@ -285,6 +285,7 @@ export function createHomeScreenMethods19() {
           }
           this.homeViewportScrollFrame = requestAnimationFrame(() => {
             this.homeViewportScrollFrame = 0;
+            this.syncVirtualHomeRowsForViewport?.();
             this.ensureHomeCatalogWindowForViewport(this.boundHomeViewport);
             if (this.shouldSuspendModernViewportFocusSync()) {
               return;

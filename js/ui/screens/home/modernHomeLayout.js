@@ -52,82 +52,24 @@ export function renderModernHomeLayout({
   shouldDeferRowImages,
   watchedTitleIds = null,
   escapeHtml,
-  escapeAttribute
+  escapeAttribute,
+  rowWindow = null
 } = {}) {
-  const catalogSeeAllMap = new Map();
-  const sectionsMarkup = [];
-
-  rows.forEach((rowData, rowIndex) => {
-    const isCollectionRow = rowData?.rowKind === "collection";
-    const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
-    const isLoading = rowData?.result?.status === "loading";
-    const rowItems = items.length ? items : rowData.loadingItems || [];
-    if (!rowItems.length) {
-      return;
-    }
-
-    const rowKey = String(rowData?.homeCatalogKey || buildModernRowKey(rowData));
-    const seeAllId = `${rowData.addonId || "addon"}_${rowData.catalogId || "catalog"}_${rowData.type || "movie"}`;
-    if (!isLoading && !isCollectionRow) {
-      const catalogResultData = rowData?.result?.data || {};
-      catalogSeeAllMap.set(seeAllId, {
-        addonBaseUrl: rowData.addonBaseUrl || "",
-        addonId: rowData.addonId || "",
-        addonName: rowData.addonName || "",
-        catalogId: rowData.catalogId || "",
-        catalogName: rowData.catalogName || "",
-        type: rowData.type || "movie",
-        initialItems: items,
-        initialNextSkip: Number(catalogResultData.nextSkip || 0),
-        initialHasMore: Boolean(catalogResultData.hasMore),
-        supportsSkip: rowData.supportsSkip !== false && catalogResultData.supportsSkip !== false,
-        skipStep: Number(rowData.skipStep || catalogResultData.skipStep || 100)
-      });
-    }
-
-    const maxItems = Math.max(1, Number(rowItemLimit || 15));
-    const focusedItemLimit =
-      focusedRowKey === rowKey && Number.isFinite(focusedItemIndex)
-        ? Math.max(0, Number(focusedItemIndex)) + 1
-        : 0;
-    const visibleItems = isCollectionRow
-      ? rowItems
-      : rowItems.slice(0, Math.max(maxItems, focusedItemLimit));
-    const rowTitle = isCollectionRow
-      ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
-      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
-    const deferRowImages =
-      typeof shouldDeferRowImages === "function"
-        ? shouldDeferRowImages(rowIndex, rowKey, focusedRowKey)
-        : false;
-    const cardsMarkup = visibleItems
-      .map((item, itemIndex) =>
-        createPosterCardMarkup(
-          item,
-          rowIndex,
-          itemIndex,
-          rowData.type,
-          rowData,
-          showPosterLabels,
-          "modern",
-          expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
-          preferLandscapePosters,
-          deferRowImages,
-          watchedTitleIds
-        )
-      )
-      .join("");
-
-    sectionsMarkup.push(`
-      <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
-        <div class="home-row-head">
-          <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
-        </div>
-        <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
-          ${cardsMarkup}
-        </div>
-      </section>
-    `);
+  const { catalogSeeAllMap, markup: catalogMarkup } = renderModernCatalogRows({
+    rows,
+    rowItemLimit,
+    showPosterLabels,
+    showCatalogTypeSuffix,
+    preferLandscapePosters,
+    focusedRowKey,
+    focusedItemIndex,
+    expandFocusedPoster,
+    createPosterCardMarkup,
+    formatCatalogRowTitle,
+    shouldDeferRowImages,
+    watchedTitleIds,
+    escapeHtml,
+    rowWindow
   });
 
   return {
@@ -169,13 +111,118 @@ export function renderModernHomeLayout({
               blurNextUp: blurContinueWatchingNextUp,
               cardStyle: continueWatchingCardStyle
             })}
-            <div class="home-modern-catalogs">
-              ${sectionsMarkup.join("")}
+            <div class="home-modern-catalogs${rowWindow ? " home-catalogs-virtual" : ""}">
+              ${catalogMarkup}
             </div>
           </div>
         </div>
       </section>
     `
+  };
+}
+
+// Shared by the full Home render and local viewport-window updates.
+export function renderModernCatalogRows({
+  rows = [],
+  rowItemLimit = 15,
+  showPosterLabels = true,
+  showCatalogTypeSuffix = true,
+  preferLandscapePosters = false,
+  focusedRowKey = "",
+  focusedItemIndex = -1,
+  expandFocusedPoster = false,
+  createPosterCardMarkup,
+  formatCatalogRowTitle,
+  shouldDeferRowImages,
+  watchedTitleIds = null,
+  escapeHtml,
+  rowWindow = null
+} = {}) {
+  const catalogSeeAllMap = new Map();
+  const sectionsMarkup = [];
+
+  rows.forEach((rowData, rowIndex) => {
+    if (rowWindow && !rowWindow.indices.has(rowIndex)) return;
+    const isCollectionRow = rowData?.rowKind === "collection";
+    const items = Array.isArray(rowData?.result?.data?.items) ? rowData.result.data.items : [];
+    const isLoading = rowData?.result?.status === "loading";
+    const rowItems = items.length ? items : rowData.loadingItems || [];
+    if (!rowItems.length) {
+      return;
+    }
+
+    const rowKey = String(rowData?.homeCatalogKey || buildModernRowKey(rowData));
+    const seeAllId = `${rowData.addonId || "addon"}_${rowData.catalogId || "catalog"}_${rowData.type || "movie"}`;
+    if (!isLoading && !isCollectionRow) {
+      const catalogResultData = rowData?.result?.data || {};
+      catalogSeeAllMap.set(seeAllId, {
+        addonBaseUrl: rowData.addonBaseUrl || "",
+        addonId: rowData.addonId || "",
+        addonName: rowData.addonName || "",
+        catalogId: rowData.catalogId || "",
+        catalogName: rowData.catalogName || "",
+        type: rowData.type || "movie",
+        initialItems: items,
+        initialNextSkip: Number(catalogResultData.nextSkip || 0),
+        initialHasMore: Boolean(catalogResultData.hasMore),
+        supportsSkip: rowData.supportsSkip !== false && catalogResultData.supportsSkip !== false,
+        skipStep: Number(rowData.skipStep || catalogResultData.skipStep || 100)
+      });
+    }
+
+    const maxItems = Math.max(1, Number(rowItemLimit || 15));
+    const focusedItemLimit =
+      focusedRowKey === rowKey && Number.isFinite(focusedItemIndex)
+        ? Math.max(0, Number(focusedItemIndex)) + 1
+        : 0;
+    const visibleItems = isCollectionRow
+      ? rowItems
+      : rowItems.slice(
+          0,
+          Math.max(maxItems, focusedItemLimit, rowWindow?.itemCounts.get(rowKey) || 0)
+        );
+    const rowTitle = isCollectionRow
+      ? String(rowData.collectionTitle || rowData.collection?.title || "Collection")
+      : formatCatalogRowTitle(rowData.catalogName, rowData.type, showCatalogTypeSuffix);
+    const deferRowImages =
+      typeof shouldDeferRowImages === "function"
+        ? shouldDeferRowImages(rowIndex, rowKey, focusedRowKey)
+        : false;
+    const cardsMarkup = visibleItems
+      .map((item, itemIndex) =>
+        createPosterCardMarkup(
+          item,
+          rowIndex,
+          itemIndex,
+          rowData.type,
+          rowData,
+          showPosterLabels,
+          "modern",
+          expandFocusedPoster && focusedRowKey === rowKey && focusedItemIndex === itemIndex,
+          preferLandscapePosters,
+          deferRowImages,
+          watchedTitleIds
+        )
+      )
+      .join("");
+
+    sectionsMarkup.push(`
+      <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
+        <div class="home-row-head">
+          <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
+        </div>
+        <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
+          ${cardsMarkup}
+        </div>
+      </section>
+    `);
+  });
+
+  const spacer = (edge, height) =>
+    `<div class="home-catalog-spacer" data-virtual-edge="${edge}" aria-hidden="true" style="height:${height}px"${height > 0 ? "" : " hidden"}></div>`;
+  return {
+    catalogSeeAllMap,
+    markup: `${rowWindow ? spacer("top", rowWindow.top) : ""}${sectionsMarkup.join("")}${rowWindow ? spacer("bottom", rowWindow.bottom) : ""}`
   };
 }
 

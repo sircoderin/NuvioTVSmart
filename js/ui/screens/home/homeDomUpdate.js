@@ -23,6 +23,7 @@ function key(node) {
     return `card:${JSON.stringify(identity)}`;
   }
   if (node.id) return `id:${node.id}`;
+  if (node.dataset.virtualEdge) return `spacer:${node.dataset.virtualEdge}`;
   if (node.dataset.rowKey) return `row:${node.dataset.rowKey}`;
   if (node.dataset.trackRowKey) return `track:${node.dataset.trackRowKey}`;
   if (node.dataset.action && node.classList.contains("focusable"))
@@ -194,4 +195,28 @@ export function updateHomeDom(container, markup, { incremental = false, focusedN
   }
   mountedShells.set(container, container.querySelector(".home-shell"));
   return Boolean(canUpdate);
+}
+
+// Reconcile just the mounted catalog window, retaining overlapping rows and
+// runtime-owned focus/artwork state without rebuilding the surrounding Home.
+export function updateHomeCatalogDom(container, markup, rowKeys) {
+  const source = container.ownerDocument.createElement("div");
+  source.innerHTML = markup;
+  const rows = new Map(Array.from(container.querySelectorAll(".home-modern-row"), (node) => [node.dataset.rowKey, node]));
+  const desired = new Set(rowKeys);
+  rows.forEach((node, key) => {
+    if (!desired.has(key)) node.remove();
+  });
+  source.querySelectorAll(".home-modern-row").forEach((node) => {
+    remember(node, node);
+    rows.set(node.dataset.rowKey, node);
+  });
+  let before = container.querySelector('[data-virtual-edge="bottom"]');
+  // Retained rows are already ordered. Only insert entering rows, leaving
+  // focused branches, hydrated images and pagination additions untouched.
+  for (let index = rowKeys.length - 1; index >= 0; index--) {
+    const node = rows.get(rowKeys[index]);
+    if (node.parentNode !== container) container.insertBefore(node, before);
+    before = node;
+  }
 }

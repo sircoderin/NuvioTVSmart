@@ -1,3 +1,4 @@
+import { createHomeRowVirtualizationMethods } from "./homeRowVirtualization.js";
 import { createHomeScreenMethods01 } from "./homeScreenMethods-01-get-route-state-key.js";
 import { createHomeScreenMethods02 } from "./homeScreenMethods-02-restore-modern-focus-state.js";
 import { createHomeScreenMethods03 } from "./homeScreenMethods-03-is-scroll-animation-active.js";
@@ -31,6 +32,7 @@ import { createHomeScreenMethods30 } from "./homeScreenMethods-30-cleanup.js";
 
 export * from "./homeScreenContext.js";
 export const HomeScreen = {
+  ...createHomeRowVirtualizationMethods(),
   ...createHomeScreenMethods01(),
   ...createHomeScreenMethods02(),
   ...createHomeScreenMethods03(),

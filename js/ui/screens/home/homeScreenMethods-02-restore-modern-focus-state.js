@@ -14,6 +14,7 @@ export function createHomeScreenMethods02() {
         return false;
       }
 
+      this.ensureVirtualHomeRowMounted?.(focusState.rowKey);
       Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
         const track = this.getNavigationTrackNodes().find((node) => String(node.dataset.trackRowKey || "") === String(rowKey || ""));
         if (track) {

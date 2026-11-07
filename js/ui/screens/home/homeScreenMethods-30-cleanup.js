@@ -31,6 +31,7 @@ export function createHomeScreenMethods30() {
       this.continueWatchingMenu = null;
       this.posterHoldMenu = null;
       this.posterListPicker = null;
+      this.captureVirtualHomeRowMetrics?.();
       this.persistCurrentFocusState();
       this.homeLoadToken = (this.homeLoadToken || 0) + 1;
       this.cancelInitialHomeLoadTimeout();

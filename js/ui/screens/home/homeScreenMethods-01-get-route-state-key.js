@@ -47,11 +47,12 @@ export function createHomeScreenMethods01() {
       if (!focused) {
         return null;
       }
-      const trackStates = Object.fromEntries(
-        this.getNavigationTrackNodes()
+      const trackStates = Object.fromEntries([
+        ...Array.from(this.homeRowVirtualWindow?.trackStates || []),
+        ...this.getNavigationTrackNodes()
           .map((track) => [String(track.dataset.trackRowKey || ""), track.scrollLeft])
           .filter(([key]) => key)
-      );
+      ]);
       const section = focused?.closest?.("[data-row-key]") || null;
       const rowKey = String(section?.dataset?.rowKey || "");
       let itemIndex = -1;
@@ -109,11 +110,12 @@ export function createHomeScreenMethods01() {
         return null;
       }
 
-      const trackStates = Object.fromEntries(
-        this.getNavigationTrackNodes()
+      const trackStates = Object.fromEntries([
+        ...Array.from(this.homeRowVirtualWindow?.trackStates || []),
+        ...this.getNavigationTrackNodes()
           .map((track) => [String(track.dataset.trackRowKey || ""), track.scrollLeft])
           .filter(([key]) => key)
-      );
+      ]);
       const section = node.closest("[data-row-key]") || null;
       const track = node.closest(".home-track, .home-grid-track");
       const itemIndex = track ? Array.from(track.querySelectorAll(".home-content-card.focusable")).indexOf(node) : -1;
@@ -192,6 +194,7 @@ export function createHomeScreenMethods01() {
         return false;
       }
 
+      this.ensureVirtualHomeRowMounted?.(focusState.rowKey);
       Object.entries(focusState.trackStates || {}).forEach(([rowKey, scrollLeft]) => {
         const track = this.getNavigationTrackNodes().find((node) => String(node.dataset.trackRowKey || "") === String(rowKey || ""));
         if (track) {

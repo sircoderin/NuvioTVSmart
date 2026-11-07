@@ -93,3 +93,60 @@ Before the change, every key rebuilt the whole panel. In the stream view that me
 ## October 2026 issue follow-up checkpoint
 
 See [ISSUES-1055-1059.md](ISSUES-1055-1059.md) for what was tried, targeted upstream 1.2.4 measurements, the final Home candidate check and limitations. Neither experiment demonstrated a reliable solution; the experimental checkout was retired without merging its code. These results are separate from the fork benchmarks above. The TV is back on the asset-verified merged performance-fork 1.2.4, with configuration preserved, playback paused and experiment probes removed.
+
+## October 12, 2026: Modern Home row virtualization trial
+
+Implemented and installed a trial on the same LG 43UQ70003LB / Chromium 87,
+performance-fork 1.2.4. Constrained Modern Home now mounts at most nine
+catalog/collection rows. Catalog data remains available; this is a DOM window,
+not a cap on the user's catalogs. Continue Watching/upcoming and the hero remain
+outside the window. Full rendering and Classic/Grid retain their existing paths.
+
+The virtualizer stores measured row heights, horizontal scroll positions and
+rendered card counts by key, with two aggregate spacers for offscreen rows.
+Logical D-pad navigation mounts the destination before moving focus. Window
+shifts create only incoming rows and preserve overlapping nodes; generating and
+reconciling every window row was measurably more expensive. A pointer-scroll
+double-compensation bug was corrected by establishing spacer geometry before
+restoring scroll. Pointer focus also schedules the existing hero/poster effects.
+
+TV samples: start on catalog index 4, Modern layout with hero, 25 Down keys,
+400 ms between completed CDP dispatches; caches were not cleared. Key timing is
+keydown-listener to next animation-frame callback, not completed image display.
+
+| Sample | Final catalog index | Mounted catalog rows | Home elements | Median / p95 key-to-frame | Worst long task |
+| --- | --- | --- | --- | --- | --- |
+| Pre-change performance fork | 29 | 38 | 3,754 | 31 / 107 ms | 3,678 ms |
+| Spacer-corrected candidate | 29 | 9 | 928 | 14 / 172 ms | 718 ms |
+| Final installed build | 28 | 9 | 987 | 86 / 317 ms | 4,161 ms |
+
+One key in the final run reached a catalog boundary before the next catalog
+data arrived; navigation continued after it loaded. The pre-change run had 38
+loaded rows, the spacer-corrected candidate 35, and the final run 34. These are
+small, network/cache-dependent samples, not identical settled workloads. The
+DOM bound is verified, but **a reliable navigation speedup is not established**:
+the good candidate sample did not repeat, and multi-second stalls remain.
+No benchmark of Native Legacy was taken and no native parity is claimed.
+
+A 25-key Up run on the spacer-corrected build returned index 29 to 4, with nine
+rows throughout, exact scroll/focus alignment, median 64 ms, p95 357 ms and worst
+long task 422 ms. Earlier remount checks also restored the remembered card
+column. A temporary per-track 3D-transform experiment on the bounded window
+made downward p95 1,987 ms; it was removed and is not part of the implementation.
+
+The final build was checked for pointer jumps to the top and deep into Home,
+visible focus and eventual hero identity, and Details/Back preserving row and
+scroll position. TV screenshots were inspected. The installed JavaScript
+matches the extracted IPK byte-for-byte; inspector stylesheet text matches IPK
+bytes after accounting for its Windows-1252 decoding. Configuration matches
+the preserved configuration. Compare extracted package assets rather than
+staging files: the webOS packager minifies JavaScript again.
+
+All 62 unit tests, repository lint, production build and webOS packaging pass.
+Seven new tests cover bounded traversal of 70 rows, variable-height spacers,
+key-based cache retention, skipping offscreen card generation, logical
+navigation, runtime/layout gating and pointer hero updates. Raw measurements,
+screenshots, installed sources, private configuration and IPK stay local under
+ignored paths. The trial is left installed for evaluation; Home is at the top.
+Final cleanup confirmed paused video, no temporary styles, detached experiment
+rows, active probes or saved runtime-class overrides.

@@ -94,6 +94,22 @@
   gap: 24px;
 }
 
+.home-catalog-spacer {
+  flex: 0 0 auto;
+  pointer-events: none;
+  overflow-anchor: none;
+}
+
+.home-catalog-spacer[hidden] {
+  display: none;
+}
+
+.home-catalogs-virtual {
+  /* Scroll compensation belongs to the virtualizer, rather than Chromium's
+     automatic anchoring when rows are removed above the viewport. */
+  overflow-anchor: none;
+}
+
 .home-screen-shell.home-layout-modern.home-modern-landscape-posters .home-modern-catalogs {
   gap: 24px;
 }

@@ -4,9 +4,8 @@ Read [RESULTS.md](RESULTS.md) for the measured outcomes and limitations. The ori
 
 ## Maintain the fork
 
-Upstream 1.3.8 (`0604af9`) is merged on `webos-performance-merge-1.3.8` while
-retaining the fork policies below; `webos-performance` still holds the 1.2.4
-fork. Upstream removed the Auto/Reduced/Full rendering setting, so the fork
+Upstream 1.3.8 (`0604af9`) is merged into `webos-performance` while retaining
+the fork policies below; `8bd312df` is the last 1.2.4 fork commit. Upstream removed the Auto/Reduced/Full rendering setting, so the fork
 keeps only the automatic constrained policy. Upstream's stream picker
 re-checked `loadToken` before opening the player; the fork advances that token
 on selection to cancel picker work, so the guard uses `playResolveToken`.

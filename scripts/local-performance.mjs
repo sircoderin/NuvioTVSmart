@@ -9,7 +9,7 @@ import os from "node:os";
 import crypto from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -27,6 +27,7 @@ Serves .cache/webos-package/app (stage it with --build) to headless Chromium
 posing as the TV's Chromium 87, with CPU throttling and recorded network.
 
   --build              build with NUVIO_BUILD_CHROMIUM=87 and stage the webOS app first
+  --debug-bundle       with --build: skip minification so profiles show real names
   --record             refetch every response from the real network and save it
   --offline            replay only; unrecorded requests fail (default: unrecorded
                        requests are fetched once and saved, then replayed)
@@ -40,11 +41,14 @@ posing as the TV's Chromium 87, with CPU throttling and recorded network.
   --key-gap=MS         wall time between keys (default 450)
   --state=FILE         JSON object of localStorage entries for the first launch
                        (default: a guest profile with the default addons)
+  --save-app=NAME      keep a copy of the staged app under this name for --ab
+  --ab=A,B             alternate launches between two saved apps and compare B to A
   --label=NAME         result name (default: short commit hash, +dirty)
   --compare=FILE       print this run against an earlier result JSON
   --cpu-profile        save a CPU profile of the first measured launch and print
                        its top self-time functions
   --eval=EXPR          evaluate EXPR in the page at the end of each launch and print it
+  --home-perf          enable the app's Home render log and report render count/time
   --no-snapshot        delete the saved Home boot snapshot before each launch (A/B
                        against the same build)
   --screenshot-at=MS,MS  save screenshots at these wall times after navigation starts
@@ -71,12 +75,14 @@ const settings = {
   cpuProfile: flag("cpu-profile"),
   screenshot: flag("screenshot"),
   noSnapshot: flag("no-snapshot"),
+  homePerf: flag("home-perf"),
   evaluate: option("eval", ""),
   screenshotAt: option("screenshot-at", "").split(",").filter(Boolean).map(Number)
 };
 const TV_USER_AGENT =
   "Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36 WebAppManager";
-const appDir = path.join(repoRoot, ".cache", "webos-package", "app");
+const stagedAppDir = path.join(repoRoot, ".cache", "webos-package", "app");
+const savedAppsDir = path.join(cacheDir, "apps");
 const fixtureDir = path.join(cacheDir, "fixtures");
 const resultDir = path.join(cacheDir, "results");
 const SETTLE_QUIET_MS = 3000;
@@ -218,6 +224,8 @@ function run(command, args, env = {}) {
 
 async function buildApp() {
   const env = { NUVIO_BUILD_CHROMIUM: "87" };
+  // Readable function names in CPU profiles; timings shift slightly.
+  if (flag("debug-bundle")) env.NUVIO_DEBUG_BUNDLE = "1";
   const privateProperties = path.join(repoRoot, ".cache", "tv-performance", "tv-build.properties");
   if (existsSync(privateProperties)) env.NUVIO_LOCAL_PROPERTIES = privateProperties;
   await run("npm", ["run", "build"], env);
@@ -241,7 +249,7 @@ const MIME = {
   ".ttf": "font/ttf"
 };
 
-function startAppServer() {
+function startAppServer(appDir) {
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url, "http://localhost");
     let file = path.join(appDir, decodeURIComponent(url.pathname));
@@ -589,6 +597,17 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
     await send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
     await send("Page.addScriptToEvaluateOnNewDocument", { source: seedScript(state) });
     await send("Page.addScriptToEvaluateOnNewDocument", { source: PAGE_PROBE });
+    if (settings.homePerf) {
+      await send("Page.addScriptToEvaluateOnNewDocument", {
+        source: `(() => { window.__NUVIO_DEBUG_HOME_PERF__ = true;
+          const renders = (window.__perfLocalHomeRenders = []);
+          const info = console.info.bind(console);
+          console.info = (label, data) => {
+            if (label === "[home-perf] render" && data) renders.push({ at: performance.now(), ms: data.ms, mountedCards: data.mountedCards, domWrite: data.domWrite });
+            else if (typeof label !== "string" || !label.startsWith("[home-perf]")) info(label, data);
+          }; })();`
+      });
+    }
     if (settings.noSnapshot) {
       await send("Page.addScriptToEvaluateOnNewDocument", {
         source: `try { localStorage.removeItem("homeBootSnapshot"); } catch (_) {}`
@@ -639,7 +658,6 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
       }
     }
     let profile = null;
-    if (cpuProfile) profile = (await send("Profiler.stop")).profile;
     if (settings.screenshot) {
       await send("Emulation.setCPUThrottlingRate", { rate: 1 });
       const { data } = await send("Page.captureScreenshot", { format: "png" });
@@ -684,7 +702,7 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
       const before = await evaluate(
         cdp,
         sessionId,
-        `({ keys: __perfLocal.keys.length, tasks: __perfLocal.longTasks.length })`
+        `({ keys: __perfLocal.keys.length, tasks: __perfLocal.longTasks.length, now: performance.now() })`
       );
       for (const key of measureKeys) {
         const event = {
@@ -710,6 +728,7 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
       const nextFrame = navigation.keys.map((sample) => sample.nextFrameMs);
       const settledKey = navigation.keys.map((sample) => sample.settledMs);
       navigation = {
+        startedAt: before.now,
         keys: navigation.keys.length,
         nextFrameMedian: quantile(nextFrame, 0.5),
         nextFrameP95: quantile(nextFrame, 0.95),
@@ -721,6 +740,7 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
         homeElements: navigation.homeElements
       };
     }
+    if (cpuProfile) profile = (await send("Profiler.stop")).profile;
     // Stay on Home until the app saves its boot snapshot, as a viewer would.
     const snapshotWaitStart = Date.now();
     let snapshotSaved = false;
@@ -735,6 +755,21 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
       await sleep(500);
     }
     boot.snapshotSaved = snapshotSaved;
+    if (settings.homePerf) {
+      const renders = await evaluate(cdp, sessionId, "window.__perfLocalHomeRenders || []");
+      const navStart = navigation?.startedAt ?? Infinity;
+      const pick = (list) => ({
+        count: list.length,
+        totalMs: Math.round(list.reduce((sum, r) => sum + r.ms, 0)),
+        maxMs: Math.round(list.reduce((max, r) => Math.max(max, r.ms), 0))
+      });
+      boot.homeRenders = pick(renders.filter((r) => r.at < navStart));
+      if (navigation) navigation.homeRenders = pick(renders.filter((r) => r.at >= navStart));
+      console.log(
+        `  home renders: boot ${JSON.stringify(boot.homeRenders)}` +
+          (navigation ? `, navigation ${JSON.stringify(navigation.homeRenders)}` : "")
+      );
+    }
     if (settings.evaluate) {
       const value = await evaluate(cdp, sessionId, settings.evaluate).catch((error) =>
         String(error)
@@ -777,6 +812,34 @@ function summarizeProfile(profile, limit = 15) {
     self.set(key, (self.get(key) || 0) + (deltas[index] || 0) / 1000);
   });
   return [...self.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([name, ms]) => ({ name, ms: Math.round(ms) }));
+}
+
+// Inclusive time per function name: a sample counts once for every distinct
+// function on its stack, so recursion is not double counted.
+function summarizeProfileInclusive(profile, limit = 25) {
+  const nodes = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map();
+  for (const node of profile.nodes)
+    for (const child of node.children || []) parent.set(child, node.id);
+  const total = new Map();
+  const deltas = profile.timeDeltas || [];
+  profile.samples.forEach((id, index) => {
+    const seen = new Set();
+    for (let current = id; current !== undefined; current = parent.get(current)) {
+      const frame = nodes.get(current).callFrame;
+      if (!frame.url || !/app\.bundle/.test(frame.url) || !frame.functionName) continue;
+      if (seen.has(frame.functionName)) continue;
+      seen.add(frame.functionName);
+      total.set(
+        frame.functionName,
+        (total.get(frame.functionName) || 0) + (deltas[index] || 0) / 1000
+      );
+    }
+  });
+  return [...total.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
     .map(([name, ms]) => ({ name, ms: Math.round(ms) }));
@@ -826,91 +889,122 @@ function printTable(summary, baseline) {
   }
 }
 
+async function measureVariant({ chromePath, state, keys, variant }) {
+  const userDataDir = path.join(cacheDir, `browser-profile-${variant.index}`);
+  await rm(userDataDir, { recursive: true, force: true });
+  await mkdir(userDataDir, { recursive: true });
+  const { server, port } = await startAppServer(variant.appDir);
+  variant.server = server;
+  variant.launch = (cpuProfile) =>
+    launchOnce({
+      chromePath,
+      userDataDir,
+      appUrl: `http://127.0.0.1:${port}/index.html`,
+      state,
+      measureKeys: keys,
+      cpuProfile
+    });
+  console.log(
+    `${variant.label}: priming launch (${settings.record ? "recording network" : settings.offline ? "replay only" : "replaying, recording new requests"}, cpu ${settings.cpu}x, ${settings.catalogs} synthetic rows)...`
+  );
+  const prime = await variant.launch(false);
+  console.log(
+    `  home interactive ${round(prime.boot.homeInteractive)} ms; network ${JSON.stringify(prime.network)}`
+  );
+  if (!prime.boot.homeInteractive) {
+    console.log(`  route: ${prime.boot.route}; errors: ${prime.errors.slice(0, 5).join(" | ")}`);
+    throw new Error(`Home never became interactive in the priming launch of ${variant.label}.`);
+  }
+}
+
+async function recordRun(variant, index, result) {
+  console.log(
+    `${variant.label} run ${index + 1}/${settings.runs}: poster ${round(result.boot.firstPoster)} ms (${result.boot.firstPosterSource || "none"}), interactive ${round(result.boot.homeInteractive)} ms, settled ${round(result.boot.settled)} ms, key p95 ${round(result.navigation?.nextFrameP95)} ms` +
+      (result.network.missing ? `, ${result.network.missing} missing fixtures` : "") +
+      (result.network.recorded ? `, ${result.network.recorded} newly recorded` : "")
+  );
+  if (result.profile) {
+    const profilePath = path.join(resultDir, `${variant.label}.cpuprofile`);
+    await writeFile(profilePath, JSON.stringify(result.profile));
+    console.log(`  CPU profile: ${profilePath}`);
+    console.log("  top self time (first launch, throttled ms):");
+    for (const entry of summarizeProfile(result.profile))
+      console.log(`    ${String(entry.ms).padStart(6)}  ${entry.name}`);
+    console.log("  top inclusive time in app.bundle.js (boot and navigation, throttled ms):");
+    for (const entry of summarizeProfileInclusive(result.profile))
+      console.log(`    ${String(entry.ms).padStart(6)}  ${entry.name}`);
+    result.profileTop = summarizeProfile(result.profile, 40);
+    result.profileInclusive = summarizeProfileInclusive(result.profile, 80);
+    delete result.profile;
+  }
+  variant.runs.push(result);
+}
+
 async function main() {
   if (flag("build")) await buildApp();
-  if (!existsSync(path.join(appDir, "index.html")))
-    throw new Error("No staged webOS app. Run with --build first.");
+  if (option("save-app")) {
+    const target = path.join(savedAppsDir, option("save-app"));
+    await rm(target, { recursive: true, force: true });
+    await cp(stagedAppDir, target, { recursive: true });
+    console.log(`saved staged app as ${option("save-app")}`);
+  }
+  const commit = git(["rev-parse", "--short", "HEAD"]);
+  const dirty = git(["status", "--porcelain"]) ? "+dirty" : "";
+  // --ab=A,B alternates launches between two saved apps so machine drift
+  // affects both equally; otherwise the staged app is measured alone.
+  const variants = option("ab")
+    ? option("ab")
+        .split(",")
+        .map((name, index) => ({ label: name, appDir: path.join(savedAppsDir, name), index }))
+    : [{ label: option("label", `${commit}${dirty}`), appDir: stagedAppDir, index: 0 }];
+  for (const variant of variants) {
+    variant.runs = [];
+    if (!existsSync(path.join(variant.appDir, "index.html")))
+      throw new Error(
+        `No app at ${variant.appDir}. Run with --build (and --save-app=NAME for --ab).`
+      );
+  }
   const chromePath = findChrome();
   const state = option("state")
     ? JSON.parse(await readFile(path.resolve(option("state")), "utf8"))
     : defaultState();
-  const commit = git(["rev-parse", "--short", "HEAD"]);
-  const dirty = git(["status", "--porcelain"]) ? "+dirty" : "";
-  const label = option("label", `${commit}${dirty}`);
-  const userDataDir = path.join(cacheDir, "browser-profile");
-  await rm(userDataDir, { recursive: true, force: true });
-  await mkdir(userDataDir, { recursive: true });
-  await mkdir(resultDir, { recursive: true });
-  const { server, port } = await startAppServer();
-  const appUrl = `http://127.0.0.1:${port}/index.html`;
   const keys = parseKeys(settings.keys);
+  await mkdir(resultDir, { recursive: true });
   try {
-    console.log(
-      `priming launch (${settings.record ? "recording network" : settings.offline ? "replay only" : "replaying, recording new requests"}, cpu ${settings.cpu}x, ${settings.catalogs} synthetic rows)...`
-    );
-    const prime = await launchOnce({
-      chromePath,
-      userDataDir,
-      appUrl,
-      state,
-      measureKeys: keys,
-      cpuProfile: false
-    });
-    console.log(
-      `  home interactive ${round(prime.boot.homeInteractive)} ms; network ${JSON.stringify(prime.network)}`
-    );
-    if (!prime.boot.homeInteractive) {
-      console.log(`  route: ${prime.boot.route}; errors: ${prime.errors.slice(0, 5).join(" | ")}`);
-      throw new Error("Home never became interactive in the priming launch.");
-    }
-    const runs = [];
+    for (const variant of variants) await measureVariant({ chromePath, state, keys, variant });
     for (let index = 0; index < settings.runs; index += 1) {
-      const result = await launchOnce({
-        chromePath,
-        userDataDir,
-        appUrl,
-        state,
-        measureKeys: keys,
-        cpuProfile: settings.cpuProfile && index === 0
-      });
-      console.log(
-        `run ${index + 1}/${settings.runs}: poster ${round(result.boot.firstPoster)} ms (${result.boot.firstPosterSource || "none"}), interactive ${round(result.boot.homeInteractive)} ms, settled ${round(result.boot.settled)} ms, key p95 ${round(result.navigation?.nextFrameP95)} ms` +
-          (result.network.missing ? `, ${result.network.missing} missing fixtures` : "") +
-          (result.network.recorded ? `, ${result.network.recorded} newly recorded` : "")
-      );
-      if (result.profile) {
-        const profilePath = path.join(resultDir, `${label}.cpuprofile`);
-        await writeFile(profilePath, JSON.stringify(result.profile));
-        console.log(`  CPU profile: ${profilePath}`);
-        console.log("  top self time (first launch, throttled ms):");
-        for (const entry of summarizeProfile(result.profile))
-          console.log(`    ${String(entry.ms).padStart(6)}  ${entry.name}`);
-        result.profileTop = summarizeProfile(result.profile, 40);
-        delete result.profile;
-      }
-      runs.push(result);
+      // Alternate the order each round as well.
+      const order = index % 2 ? [...variants].reverse() : variants;
+      for (const variant of order)
+        await recordRun(variant, index, await variant.launch(settings.cpuProfile && index === 0));
     }
-    const summary = summarize(runs);
-    const output = {
-      label,
-      commit,
-      dirty: Boolean(dirty),
-      date: new Date().toISOString(),
-      settings: { ...settings, chrome: path.basename(chromePath) },
-      summary,
-      runs
-    };
-    const resultPath = path.join(resultDir, `${label}.json`);
-    await writeFile(resultPath, `${JSON.stringify(output, null, 2)}\n`);
-    console.log(`\n${label} (median of ${runs.length} launches)`);
-    const baseline = option("compare")
-      ? JSON.parse(await readFile(path.resolve(option("compare")), "utf8"))
-      : null;
+    for (const variant of variants) {
+      variant.summary = summarize(variant.runs);
+      const output = {
+        label: variant.label,
+        commit,
+        dirty: Boolean(dirty),
+        date: new Date().toISOString(),
+        settings: { ...settings, chrome: path.basename(chromePath) },
+        summary: variant.summary,
+        runs: variant.runs
+      };
+      const resultPath = path.join(resultDir, `${variant.label}.json`);
+      await writeFile(resultPath, `${JSON.stringify(output, null, 2)}\n`);
+      console.log(`saved ${resultPath}`);
+    }
+    const current = variants[variants.length - 1];
+    const baseline =
+      variants.length > 1
+        ? variants[0]
+        : option("compare")
+          ? JSON.parse(await readFile(path.resolve(option("compare")), "utf8"))
+          : null;
+    console.log(`\n${current.label} (median of ${current.runs.length} launches)`);
     if (baseline) console.log(`compared with ${baseline.label}`);
-    printTable(summary, baseline?.summary);
-    console.log(`\nsaved ${resultPath}`);
+    printTable(current.summary, baseline?.summary);
   } finally {
-    server.close();
+    for (const variant of variants) variant.server?.close();
   }
 }
 

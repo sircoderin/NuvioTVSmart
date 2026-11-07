@@ -323,6 +323,12 @@ async function packageWebOs() {
   await mkdir(stagingDir, { recursive: true });
   await Promise.all([stageApp(), stageService(), stagePluginService()]);
 
+  // The local performance harness serves the staged app without an IPK.
+  if (process.argv.includes("--stage-only")) {
+    console.log(`staged webOS app at ${appStageDir}`);
+    return;
+  }
+
   console.log("creating webOS IPK...");
   try {
     await runWebOsToolsBinary("ares-package", [

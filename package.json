@@ -29,7 +29,8 @@
     "sync:tizen": "node ./scripts/sync-wrapper.mjs --tizen",
     "sync:webos": "node ./scripts/sync-wrapper.mjs --webos",
     "test:unit": "node ./scripts/test-unit.mjs",
-    "perf:tv": "node ./scripts/tv-performance.mjs"
+    "perf:tv": "node ./scripts/tv-performance.mjs",
+    "perf:local": "node ./scripts/local-performance.mjs"
   },
   "devDependencies": {
     "@csstools/postcss-global-data": "^4.0.0",

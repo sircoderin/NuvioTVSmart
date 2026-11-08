@@ -168,7 +168,12 @@ export {
 
 export { createHomeRowBatcher, mergeRefreshedHomeRows } from "./homeRowMerge.js";
 
-export { homeCatalogWindowTarget, initialHomeCatalogDescriptors, orderHomeCatalogDescriptors } from "./homeCatalogWindow.js";
+export {
+  homeCatalogLoadCount,
+  homeCatalogWindowTarget,
+  initialHomeCatalogDescriptors,
+  orderHomeCatalogDescriptors
+} from "./homeCatalogWindow.js";
 
 export { findHomeFocusIdentityMatch, getHomeFocusIdentity, shouldApplyLateContinueWatchingFocus } from "./homeFocusPolicy.js";
 

@@ -28,6 +28,7 @@ export function createHomeScreenMethods21() {
     createHomeRowBatcher,
     orderHomeCatalogDescriptors,
     initialHomeCatalogDescriptors,
+    homeCatalogLoadCount,
     homeCatalogWindowTarget,
     HOME_CATALOG_PRELOAD_ROWS,
     shouldApplyLateContinueWatchingFocus,
@@ -182,10 +183,15 @@ export function createHomeScreenMethods21() {
       );
       const routeInputSignature = this.buildHomeRouteInputSignature(addons);
 
-      // Home requests catalogs in display order as far as the user can reach:
-      // the first rows now, and more as focus or scrolling nears the end.
+      // Home requests catalogs in display order as far as the user can reach.
       const initialCatalogLoad = this.getInitialCatalogLoadCount();
-      const windowCount = Math.max(initialCatalogLoad, background ? Number(this.homeCatalogWindowCount || 0) : 0);
+      const windowCount = homeCatalogLoadCount({
+        total: displayDescriptors.length,
+        initialCount: initialCatalogLoad,
+        virtualRows: Boolean(this.usesVirtualHomeRows?.()),
+        background,
+        previousCount: this.homeCatalogWindowCount
+      });
       const initialDescriptors = initialHomeCatalogDescriptors(displayDescriptors, {
         count: initialCatalogLoad,
         heroCatalogKeys: prefs.heroCatalogKeys || []

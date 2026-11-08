@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 globalThis.localStorage ||= { getItem: () => null, setItem() {}, removeItem() {} };
-const { homeCatalogWindowTarget, initialHomeCatalogDescriptors, orderHomeCatalogDescriptors } =
-  await import("./homeCatalogWindow.js");
+const {
+  homeCatalogLoadCount,
+  homeCatalogWindowTarget,
+  initialHomeCatalogDescriptors,
+  orderHomeCatalogDescriptors
+} = await import("./homeCatalogWindow.js");
 const { createHomeScreenMethods21 } = await import("./homeScreenMethods-21-load-data.js");
 const { Router } = await import("../../navigation/routerState.js");
 
@@ -28,6 +32,16 @@ test("the first request covers the first rows and the hero catalogs", () => {
   assert.deepEqual(
     keys(initialHomeCatalogDescriptors(ordered, { count: 2, heroCatalogKeys: ["addon_movie_d"] })),
     ["a", "b", "d"]
+  );
+});
+
+test("virtual Home requests every catalog; other layouts start with the first rows", () => {
+  assert.equal(homeCatalogLoadCount({ total: 40, initialCount: 5, virtualRows: true }), 40);
+  assert.equal(homeCatalogLoadCount({ total: 40, initialCount: 5 }), 5);
+  assert.equal(
+    homeCatalogLoadCount({ total: 40, initialCount: 5, background: true, previousCount: 12 }),
+    12,
+    "a refresh keeps the rows the user already reached"
   );
 });
 

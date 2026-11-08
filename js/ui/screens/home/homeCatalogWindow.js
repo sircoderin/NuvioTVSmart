@@ -33,6 +33,23 @@ export function initialHomeCatalogDescriptors(
   );
 }
 
+// How many display-ordered catalogs a Home load requests. Virtual Home
+// mounts rows only as focus reaches them and takes new rows without a full
+// render, so it requests every catalog once the first rows are on screen;
+// requesting one row ahead per key press left rows waiting for the network
+// after focus arrived. Other layouts start with the first rows and extend as
+// focus nears the end, keeping what a background refresh already reached.
+export function homeCatalogLoadCount({
+  total = 0,
+  initialCount = 0,
+  virtualRows = false,
+  background = false,
+  previousCount = 0
+} = {}) {
+  if (virtualRows) return total;
+  return Math.max(initialCount, background ? Number(previousCount || 0) : 0);
+}
+
 // How many display-ordered catalogs Home needs: every catalog row through the
 // focused one, and the rows the user can reach next.
 export function homeCatalogWindowTarget(rows = [], focusedRowKey = "", preloadRows = 0) {

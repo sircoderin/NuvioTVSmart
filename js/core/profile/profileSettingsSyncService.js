@@ -205,10 +205,26 @@ export {
   pushProfileSettingsUnlocked
 };
 
+const HOME_INPUT_FEATURES = [
+  "theme_settings",
+  "layout_settings",
+  "experience_settings",
+  "trailer_settings",
+  "tmdb_settings",
+  "mdblist_settings",
+  "trakt_settings",
+  "stream_badge_settings"
+];
+
 export const ProfileSettingsSyncService = {
   ...createProfileSettingsSyncServiceMethods01(),
   getHomeInputSignature(profileId = null) {
-    const comparableFeatures = buildComparableFeaturesFromLocal(resolveProfileId(profileId));
+    // Home checks this on mount, on every sync pull and on route resume.
+    // Exporting every synced feature, not just these, cost ~0.2 s on a TV.
+    const comparableFeatures = buildComparableFeaturesFromLocal(
+      resolveProfileId(profileId),
+      HOME_INPUT_FEATURES
+    );
     return stableStringify({
       theme: comparableFeatures.theme_settings,
       layout: comparableFeatures.layout_settings,

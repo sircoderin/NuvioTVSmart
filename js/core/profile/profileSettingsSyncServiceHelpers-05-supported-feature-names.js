@@ -77,8 +77,8 @@ export function buildComparableFeaturesFromBlob(blob = {}) {
   }, {});
 }
 
-export function buildComparableFeaturesFromLocal(profileId) {
-  return SUPPORTED_FEATURE_NAMES.reduce((accumulator, featureName) => {
+export function buildComparableFeaturesFromLocal(profileId, featureNames = SUPPORTED_FEATURE_NAMES) {
+  return featureNames.reduce((accumulator, featureName) => {
     const exported = FEATURE_ADAPTERS[featureName].export(profileId);
     const featurePayload = withoutExcludedProfileSettingsKeys(featureName, exported);
     accumulator[featureName] = FEATURE_ADAPTERS[featureName].project(featurePayload);

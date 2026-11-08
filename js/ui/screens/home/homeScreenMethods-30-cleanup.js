@@ -1,6 +1,12 @@
 import * as internals from "./homeScreenContext.js";
 import { resetHomeArtworkRescaler } from "../../images/tvPosterRescaler.js";
 
+// Home keeps its artwork while the viewer is on another screen for a short
+// while, so going back from a title's details repaints at once instead of
+// rescaling every poster again. Playback starts the release at once.
+const HOME_ARTWORK_RETAIN_MS = 30000;
+// Released just after the next screen has painted: done in the route keydown
+// it delayed the route change by ~50 ms.
 const HOME_ARTWORK_RELEASE_DELAY_MS = 800;
 
 export function createHomeScreenMethods30() {
@@ -13,10 +19,7 @@ export function createHomeScreenMethods30() {
         this.homeArtworkReleaseTimer = null;
       }
     },
-    cleanup() {
-      // Release Home artwork just after the next screen has painted: done in
-      // the route keydown it delayed every exit by ~50 ms, and a quick return
-      // to Home now cancels it and keeps the posters (see mount).
+    scheduleHomeArtworkRelease(delayMs) {
       this.cancelDeferredHomeArtworkRelease();
       this.homeArtworkReleaseTimer = setTimeout(() => {
         this.homeArtworkReleaseTimer = null;
@@ -29,7 +32,18 @@ export function createHomeScreenMethods30() {
         // Drop the rescale workers and every blob url they produced. Leaving
         // them alive would keep the artwork of a screen nobody is looking at.
         resetHomeArtworkRescaler();
-      }, HOME_ARTWORK_RELEASE_DELAY_MS);
+      }, delayMs);
+    },
+    /** Called when playback starts: the player needs the memory more. */
+    releaseRetainedHomeArtworkSoon() {
+      if (this.homeArtworkReleaseTimer) {
+        this.scheduleHomeArtworkRelease(HOME_ARTWORK_RELEASE_DELAY_MS);
+      }
+    },
+    cleanup() {
+      // A return to Home before the release cancels it and keeps the posters
+      // (see mount).
+      this.scheduleHomeArtworkRelease(HOME_ARTWORK_RETAIN_MS);
       this.heroMdbListRequest = null;
       if (this.unsubscribeStartupSyncPullCompleted) {
         this.unsubscribeStartupSyncPullCompleted();

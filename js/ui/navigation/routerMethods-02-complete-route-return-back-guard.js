@@ -163,6 +163,10 @@ export function createRouterMethods02() {
         this.routes[this.current].cleanup?.();
       }
 
+      if (routeName === "player") {
+        this.routes.home?.releaseRetainedHomeArtworkSoon?.();
+      }
+
       // Android recreates Search when entering profile selection; keep only same-session snapshots.
       if (routeName === "profileSelection" && String(targetParams.mode || "selection").toLowerCase() !== "management") {
         RouteStateStore.clear("route:search");

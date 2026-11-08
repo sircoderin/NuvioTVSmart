@@ -391,3 +391,51 @@ test("the stylesheet's own object-fit reaches the rescaler", () => {
   assert.equal(asked[0].width, 220);
   assert.equal(asked[0].height, 338);
 });
+
+const cleanupSource = await readFile(
+  new URL("./homeScreenMethods-30-cleanup.js", import.meta.url),
+  "utf8"
+);
+
+function buildReleaseScheduler(timers) {
+  const context = vm.createContext({
+    setTimeout: (callback, ms) => {
+      const timer = { callback, ms };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: (timer) => {
+      if (timer) timer.cleared = true;
+    },
+    internals: { getTvRuntimePerformanceProfile: () => ({ isTvRuntime: true }) },
+    resetHomeArtworkRescaler: () => context.calls.push("reset")
+  });
+  context.calls = [];
+  vm.runInContext(
+    cleanupSource.replace(/^import [^;]+;$/gm, "").replace(/^export /gm, "") +
+      "\nglobalThis.api = createHomeScreenMethods30();",
+    context
+  );
+  const screen = {
+    releaseAllHomeLazyImages: () => context.calls.push("release"),
+    cancelDeferredHomeArtworkRelease: context.api.cancelDeferredHomeArtworkRelease,
+    scheduleHomeArtworkRelease: context.api.scheduleHomeArtworkRelease,
+    releaseRetainedHomeArtworkSoon: context.api.releaseRetainedHomeArtworkSoon
+  };
+  return { screen, calls: context.calls };
+}
+
+test("Home artwork outlives a quick visit to another screen", () => {
+  const timers = [];
+  const { screen, calls } = buildReleaseScheduler(timers);
+  screen.scheduleHomeArtworkRelease(30000);
+  assert.equal(timers.at(-1).ms, 30000, "posters are kept while the viewer may come back");
+  screen.releaseRetainedHomeArtworkSoon();
+  assert.ok(timers[0].cleared, "playback replaces the long wait");
+  assert.equal(timers.at(-1).ms, 800, "playback releases the artwork once its screen has painted");
+  timers.at(-1).callback();
+  assert.deepEqual(calls, ["release", "reset"], "posters are handed back before the pool goes");
+  const scheduled = timers.length;
+  screen.releaseRetainedHomeArtworkSoon();
+  assert.equal(timers.length, scheduled, "nothing is scheduled once the artwork is gone");
+});

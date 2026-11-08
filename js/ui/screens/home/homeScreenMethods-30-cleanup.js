@@ -44,6 +44,7 @@ export function createHomeScreenMethods30() {
       // A return to Home before the release cancels it and keeps the posters
       // (see mount).
       this.scheduleHomeArtworkRelease(HOME_ARTWORK_RETAIN_MS);
+      this.finishHomeLoadingStatus?.();
       this.heroMdbListRequest = null;
       if (this.unsubscribeStartupSyncPullCompleted) {
         this.unsubscribeStartupSyncPullCompleted();

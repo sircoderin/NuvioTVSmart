@@ -1,5 +1,6 @@
 import * as internals from "./homeScreenContext.js";
 import { startHomeContinueWatchingLoad } from "./homeContinueWatchingLoad.js";
+import { showHomeLoadingStatus, hideHomeLoadingStatus } from "./homeLoadingStatus.js";
 
 export function createHomeScreenMethods21() {
   const {
@@ -341,7 +342,10 @@ export function createHomeScreenMethods21() {
         }
       });
 
-      void this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults });
+      if (!background) {
+        this.startHomeLoadingStatus(token, [...initialDescriptors, ...deferredDescriptors], initialRows);
+      }
+      void this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults }).then(() => this.finishHomeLoadingStatus(token));
       this.ensureHomeCatalogWindowForNode(this.getCurrentFocusedNode());
 
       if (this.layoutMode !== "modern") {
@@ -392,6 +396,7 @@ export function createHomeScreenMethods21() {
         shouldContinue: () => token === this.homeLoadToken,
         onRow: (row) => {
           if (token === this.homeLoadToken && Router.getCurrent() === "home") {
+            this.noteHomeLoadingStatusRow(token, row);
             rangeRows.add(row);
           }
         }
@@ -420,6 +425,33 @@ export function createHomeScreenMethods21() {
           console.warn("Deferred home rows load failed", error);
           return [];
         });
+    },
+    // Tells the viewer when a cold load has every catalog in, so they know when
+    // Home stops changing under them.
+    startHomeLoadingStatus(token, descriptors, loadedRows = []) {
+      const keys = new Set(descriptors.map((catalog) => catalog.homeCatalogKey));
+      const loaded = new Set(loadedRows.map((row) => row?.homeCatalogKey).filter((key) => keys.has(key)));
+      if (loaded.size >= keys.size) {
+        this.finishHomeLoadingStatus();
+        return;
+      }
+      this.homeLoadingStatus = { token, keys, loaded };
+      showHomeLoadingStatus({ loaded: loaded.size, total: keys.size });
+    },
+    noteHomeLoadingStatusRow(token, row) {
+      const status = this.homeLoadingStatus;
+      if (!status || status.token !== token || !status.keys.has(row?.homeCatalogKey)) {
+        return;
+      }
+      status.loaded.add(row.homeCatalogKey);
+      showHomeLoadingStatus({ loaded: status.loaded.size, total: status.keys.size });
+    },
+    finishHomeLoadingStatus(token = null) {
+      if (token !== null && this.homeLoadingStatus?.token !== token) {
+        return;
+      }
+      this.homeLoadingStatus = null;
+      hideHomeLoadingStatus();
     },
     captureHomeHeroState() {
       return {

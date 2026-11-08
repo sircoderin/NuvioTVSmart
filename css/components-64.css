@@ -70,3 +70,23 @@
 .performance-constrained .stream-route-panel-shell {
   background: rgb(var(--bg-elevated-rgb) / 0.82);
 }
+
+/* First-load status: its own layer and containment keep text updates from
+   touching the Home layer. Static on purpose; no animation while Home paints. */
+.home-loading-status {
+  position: fixed;
+  top: 28px;
+  right: 48px;
+  z-index: 90;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgb(var(--bg-elevated-rgb) / 0.92);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  contain: layout paint style;
+  will-change: transform;
+}

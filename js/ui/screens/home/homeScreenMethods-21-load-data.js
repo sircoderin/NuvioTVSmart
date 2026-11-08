@@ -365,6 +365,7 @@ export function createHomeScreenMethods21() {
           if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
             return;
           }
+          const heroBefore = this.captureHomeHeroState();
           const combinedByKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
           rows.forEach((row) => combinedByKey.set(row.homeCatalogKey, row));
           this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
@@ -373,7 +374,7 @@ export function createHomeScreenMethods21() {
             this.heroItem = this.pickInitialHero();
           }
           void this.refreshWatchedTitleState({ token });
-          this.requestBackgroundRender();
+          this.publishLoadedHomeRows(heroBefore);
         }
       });
       // Request the whole range at once: responses reach the page only between
@@ -394,6 +395,7 @@ export function createHomeScreenMethods21() {
           if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
             return [];
           }
+          const heroBefore = this.captureHomeHeroState();
           const combinedByKey = new Map();
           [...this.rows, ...extraRows].forEach((row) => {
             combinedByKey.set(row.homeCatalogKey, row);
@@ -404,7 +406,7 @@ export function createHomeScreenMethods21() {
             this.heroItem = this.pickInitialHero();
           }
           void this.refreshWatchedTitleState({ token });
-          this.requestBackgroundRender();
+          this.publishLoadedHomeRows(heroBefore);
           this.retryPendingCatalogRows();
           return extraRows;
         })
@@ -412,6 +414,21 @@ export function createHomeScreenMethods21() {
           console.warn("Deferred home rows load failed", error);
           return [];
         });
+    },
+    captureHomeHeroState() {
+      return {
+        item: this.heroItem,
+        candidates: (this.heroCandidates || []).map((item) => String(item?.id || "")).join("\n")
+      };
+    },
+    // The hero and its indicators come from the full render; rows that only
+    // add to virtual Home mount without one.
+    publishLoadedHomeRows(heroBefore) {
+      const heroAfter = this.captureHomeHeroState();
+      const heroUnchanged = heroBefore.item === heroAfter.item && heroBefore.candidates === heroAfter.candidates;
+      if (!heroUnchanged || !this.mountLoadedVirtualHomeRows?.()) {
+        this.requestBackgroundRender();
+      }
     },
     extendHomeCatalogWindow(targetCount) {
       const descriptors = Array.isArray(this.homeCatalogDescriptors) ? this.homeCatalogDescriptors : [];

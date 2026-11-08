@@ -202,3 +202,65 @@ test("moving down from the last mounted row mounts rows loaded since the render"
   assert.deepEqual(screen.getVirtualHomeAdjacentRow({ rowKey: "e" }, 1), [], "the end of Home");
   assert.equal(mounted.length, 1, "nothing new to mount");
 });
+
+async function loadedRowsScreen() {
+  const { createHomeRowVirtualizationMethods } = await import("./homeRowVirtualization.js");
+  const { HomeRowVirtualWindow } = await import("./homeRowVirtualWindow.js");
+  const row = (id) => ({ homeCatalogKey: id, result: { data: { items: [{ id }] } } });
+  const rows = ["a", "b", "c"].map(row);
+  const model = new HomeRowVirtualWindow();
+  model.setRows(rows);
+  const mounts = [];
+  const catalogs = {
+    querySelectorAll: () =>
+      model.entries
+        .slice(model.start, model.end)
+        .map((entry) => ({ dataset: { rowKey: entry.key } }))
+  };
+  const screen = {
+    ...createHomeRowVirtualizationMethods(),
+    layoutMode: "modern",
+    isPerformanceConstrained: () => true,
+    homeRowVirtualWindow: model,
+    homeRowVirtualMountedRows: new Map(rows.map((r) => [r.homeCatalogKey, r])),
+    rows,
+    container: { querySelector: () => catalogs },
+    captureVirtualHomeRowMetrics() {},
+    syncVirtualHomeRowSpacers() {},
+    mountVirtualHomeWindow() {
+      mounts.push(model.entries.slice(model.start, model.end).map((entry) => entry.key));
+    }
+  };
+  return { screen, row, mounts };
+}
+
+test("a catalog batch that only adds rows mounts them without a full render", async () => {
+  const { screen, row, mounts } = await loadedRowsScreen();
+  screen.rows = [...screen.rows, row("d"), row("e")];
+  assert.equal(screen.mountLoadedVirtualHomeRows(), true);
+  assert.deepEqual(mounts, [["a", "b", "c", "d", "e"]]);
+});
+
+test("a catalog batch that changes a mounted row needs a full render", async () => {
+  const { screen, row, mounts } = await loadedRowsScreen();
+  screen.rows = [screen.rows[0], row("b"), screen.rows[2], row("d")];
+  assert.equal(screen.mountLoadedVirtualHomeRows(), false);
+  assert.deepEqual(mounts, []);
+});
+
+test("loaded rows render Home in full when the hero changes", () => {
+  const renders = [];
+  const screen = {
+    ...createHomeScreenMethods21(),
+    heroItem: null,
+    heroCandidates: [],
+    mountLoadedVirtualHomeRows: () => true,
+    requestBackgroundRender: () => renders.push("render")
+  };
+  const before = screen.captureHomeHeroState();
+  screen.publishLoadedHomeRows(before);
+  assert.deepEqual(renders, [], "rows alone mount in place");
+  screen.heroCandidates = [{ id: "tt1" }, { id: "tt2" }];
+  screen.publishLoadedHomeRows(before);
+  assert.deepEqual(renders, ["render"], "hero indicators come from the full render");
+});

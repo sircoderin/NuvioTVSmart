@@ -3,6 +3,10 @@ import { buildModernRowKey } from "./modernHomeLayout.js";
 export const HOME_VIRTUAL_ROW_COUNT = 9;
 export const HOME_VIRTUAL_ROW_GAP = 24;
 
+export function homeVirtualRowKey(row) {
+  return String(row?.homeCatalogKey || buildModernRowKey(row));
+}
+
 // Catalog data outlives its DOM. This model stores only keys, geometry and
 // horizontal positions, never detached cards or decoded artwork.
 export class HomeRowVirtualWindow {
@@ -21,7 +25,7 @@ export class HomeRowVirtualWindow {
     this.entries = rows.flatMap((row, index) => {
       const items = row?.result?.data?.items;
       return items?.length || row?.loadingItems?.length
-        ? [{ key: String(row.homeCatalogKey || buildModernRowKey(row)), index }]
+        ? [{ key: homeVirtualRowKey(row), index }]
         : [];
     });
     const keys = new Set(this.entries.map((entry) => entry.key));

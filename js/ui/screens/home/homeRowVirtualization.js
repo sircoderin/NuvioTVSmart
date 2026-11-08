@@ -1,4 +1,4 @@
-import { HomeRowVirtualWindow } from "./homeRowVirtualWindow.js";
+import { HomeRowVirtualWindow, homeVirtualRowKey } from "./homeRowVirtualWindow.js";
 import { renderModernCatalogRows } from "./modernHomeLayout.js";
 import { updateHomeCatalogDom } from "./homeDomUpdate.js";
 
@@ -21,6 +21,9 @@ export function createHomeRowVirtualizationMethods() {
       const model = this.homeRowVirtualWindow;
       this.captureVirtualHomeRowMetrics();
       model.setRows(this.rows || []);
+      this.homeRowVirtualMountedRows = new Map(
+        (this.rows || []).map((row) => [homeVirtualRowKey(row), row])
+      );
       if (focusState?.rowKey) {
         model.include(focusState.rowKey);
         if (focusState.itemIndex >= 0) {
@@ -117,9 +120,11 @@ export function createHomeRowVirtualizationMethods() {
         Array.from(catalogs.querySelectorAll(".home-modern-row"), (node) => node.dataset.rowKey)
       );
       const rowWindow = model.snapshot();
-      rowWindow.indices = new Set(
-        entries.filter((entry) => !mountedKeys.has(entry.key)).map((entry) => entry.index)
-      );
+      const entering = entries.filter((entry) => !mountedKeys.has(entry.key));
+      rowWindow.indices = new Set(entering.map((entry) => entry.index));
+      const mountedRows =
+        this.homeRowVirtualMountedRows || (this.homeRowVirtualMountedRows = new Map());
+      for (const entry of entering) mountedRows.set(entry.key, this.rows[entry.index]);
       const payload = renderModernCatalogRows({
         ...this.modernCatalogRenderOptions,
         rows: this.rows,
@@ -157,6 +162,40 @@ export function createHomeRowVirtualizationMethods() {
         this.captureVirtualHomeRowMetrics();
         this.mountVirtualHomeWindow();
       }
+    },
+
+    // A catalog batch normally adds rows and leaves the mounted ones as they
+    // were. Then only the window changes: entering rows mount and the spacers
+    // grow, without re-rendering Home. Returns false when a full render is needed.
+    mountLoadedVirtualHomeRows() {
+      const model = this.homeRowVirtualWindow;
+      const mountedRows = this.homeRowVirtualMountedRows;
+      const catalogs = this.container?.querySelector(".home-catalogs-virtual");
+      if (
+        !model ||
+        !mountedRows ||
+        !catalogs ||
+        !this.usesVirtualHomeRows() ||
+        this.homeDomPreserved ||
+        this.isInitialHomeLoading
+      )
+        return false;
+      const rowsByKey = new Map((this.rows || []).map((row) => [homeVirtualRowKey(row), row]));
+      const mountedKeys = Array.from(
+        catalogs.querySelectorAll(".home-modern-row"),
+        (node) => node.dataset.rowKey
+      );
+      if (mountedKeys.some((key) => rowsByKey.get(key) !== mountedRows.get(key))) return false;
+      this.captureVirtualHomeRowMetrics();
+      model.setRows(this.rows || []);
+      const mounted = new Set(mountedKeys);
+      const windowKeys = model.entries.slice(model.start, model.end).map((entry) => entry.key);
+      if (windowKeys.length !== mounted.size || windowKeys.some((key) => !mounted.has(key))) {
+        this.mountVirtualHomeWindow();
+      } else {
+        this.syncVirtualHomeRowSpacers();
+      }
+      return true;
     },
 
     // Rows loaded since the last render are not in the window yet. Moving

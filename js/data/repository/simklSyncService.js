@@ -67,10 +67,29 @@ function emptySnapshot() {
   };
 }
 
+// The stored snapshot holds the viewer's whole Simkl library, and opening a
+// title reads it a dozen times. Parse it once per stored text; comparing the
+// text also catches writes made outside this module.
+let envelopeCache = { raw: undefined, envelope: null };
+
 function readEnvelope() {
-  const stored = LocalStore.get(STORE_KEY, null);
-  return stored && typeof stored === "object" && stored.profiles
-    ? stored
+  const raw = LocalStore.getRaw(STORE_KEY);
+  if (raw !== envelopeCache.raw) {
+    let stored = null;
+    try {
+      stored = raw == null ? null : JSON.parse(raw);
+    } catch (error) {
+      console.error("LocalStore get error:", error);
+    }
+    envelopeCache = {
+      raw,
+      envelope: stored && typeof stored === "object" && stored.profiles ? stored : null
+    };
+  }
+  const envelope = envelopeCache.envelope;
+  // Callers add or delete profiles before saving; keep that off the cache.
+  return envelope
+    ? { ...envelope, profiles: { ...envelope.profiles } }
     : { version: 1, profiles: {} };
 }
 
@@ -113,9 +132,16 @@ function simklId(ids = {}) {
   return idValue(ids, "simkl") || idValue(ids, "simkl_id");
 }
 
-export function canonicalContentId(media = {}, mediaType = "shows") {
+function animeIdPreference() {
+  return TraktSettingsStore.get().simklAnimeIdPreference;
+}
+
+export function canonicalContentId(
+  media = {},
+  mediaType = "shows",
+  preference = animeIdPreference()
+) {
   const ids = media.ids || {};
-  const preference = TraktSettingsStore.get().simklAnimeIdPreference;
   const hasAnimeIds = ["mal", "kitsu", "anidb"].some((key) => Boolean(idValue(ids, key)));
   if (hasAnimeIds) {
     if (preference === SimklAnimeIdPreference.MAL) {
@@ -358,9 +384,9 @@ function toLibraryEntry(entry, snapshot) {
   };
 }
 
-export function aliasesForMedia(media = {}, mediaType = "shows") {
+export function aliasesForMedia(media = {}, mediaType = "shows", preference = animeIdPreference()) {
   const aliases = new Set();
-  const canonical = canonicalContentId(media, mediaType);
+  const canonical = canonicalContentId(media, mediaType, preference);
   if (canonical) aliases.add(canonical.toLowerCase());
   const ids = media.ids || {};
   for (const key of ["imdb", "tmdb", "tvdb", "mal", "anidb", "anilist", "kitsu", "simkl"]) {
@@ -411,11 +437,12 @@ function isTrackedAsWatching(snapshot, contentId) {
     .trim()
     .toLowerCase();
   if (!candidate) return true;
+  const preference = animeIdPreference();
   return entries.some((entry) => {
     if (!entryHasEpisodesAhead(entry)) return false;
     const media = mediaForEntry(entry);
     if (!media) return false;
-    return aliasesForMedia(media, entry.mediaType).has(candidate);
+    return entryAliases(entry, media, preference).has(candidate);
   });
 }
 
@@ -427,16 +454,49 @@ function parseContentId(contentId) {
   return match ? { [match[1].toLowerCase()]: match[2] } : {};
 }
 
+// Alias sets per entry object, for the anime id preference they were built
+// with. Entries are replaced, never edited, when their ids change.
+const entryAliasCache = new WeakMap();
+
+function entryAliases(entry, media, preference) {
+  const cached = entryAliasCache.get(entry);
+  if (cached?.preference === preference) return cached.aliases;
+  const aliases = aliasesForMedia(media, entry.mediaType, preference);
+  entryAliasCache.set(entry, { preference, aliases });
+  return aliases;
+}
+
+// The first entry for each alias, per entries array. Playback reconciliation
+// looks up every session, which otherwise rebuilt every entry's aliases.
+const aliasIndexCache = new WeakMap();
+
+function entryAliasIndex(entries, preference) {
+  const cached = aliasIndexCache.get(entries);
+  if (cached?.preference === preference) return cached.index;
+  const index = new Map();
+  entries.forEach((entry, position) => {
+    const media = mediaForEntry(entry);
+    if (!media) return;
+    for (const alias of entryAliases(entry, media, preference)) {
+      if (!index.has(alias)) index.set(alias, position);
+    }
+  });
+  aliasIndexCache.set(entries, { preference, index });
+  return index;
+}
+
 function findEntry(snapshot, item = {}) {
   const candidates = [item.itemId, item.id, item.contentId, item.imdbId && String(item.imdbId)]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase());
-  return (snapshot.entries || []).find((entry) => {
-    const media = mediaForEntry(entry);
-    if (!media) return false;
-    const aliases = aliasesForMedia(media, entry.mediaType);
-    return candidates.some((candidate) => aliases.has(candidate));
-  });
+  const entries = snapshot.entries || [];
+  const index = entryAliasIndex(entries, animeIdPreference());
+  let first = -1;
+  for (const candidate of candidates) {
+    const position = index.get(candidate);
+    if (position !== undefined && (first < 0 || position < first)) first = position;
+  }
+  return first < 0 ? undefined : entries[first];
 }
 
 function externalIds(item = {}, fallbackEntry = null) {
@@ -634,14 +694,14 @@ function progressFromPlayback(session, snapshot) {
   };
 }
 
-function watchedProjection(snapshot) {
+function buildWatchedProjection(snapshot, preference, profileId) {
   const items = [];
   const historyItems = [];
   const watchedShowSeedItems = [];
   (snapshot.entries || []).forEach((entry) => {
     const media = mediaForEntry(entry);
     if (!media) return;
-    const contentId = canonicalContentId(media, entry.mediaType);
+    const contentId = canonicalContentId(media, entry.mediaType, preference);
     if (!contentId) return;
     const type = entryMediaType(entry);
     const base = {
@@ -666,7 +726,7 @@ function watchedProjection(snapshot) {
           positionMs: 0,
           durationMs: 0,
           progressPercent: 100,
-          profileId: activeProfileId()
+          profileId
         });
       }
       return;
@@ -701,7 +761,7 @@ function watchedProjection(snapshot) {
           positionMs: 1,
           durationMs: 1,
           progressPercent: 100,
-          profileId: activeProfileId(),
+          profileId,
           season: seasonNumber,
           episode: episodeNumber,
           seasonNumber,
@@ -719,6 +779,36 @@ function watchedProjection(snapshot) {
     }
   });
   return { items, historyItems, watchedShowSeedItems };
+}
+
+// The projection only depends on the stored entries, so it is built once per
+// snapshot. Callers get their own arrays and items to change as they like.
+let projectionCache = null;
+
+function watchedProjection(snapshot) {
+  const preference = animeIdPreference();
+  const profileId = activeProfileId();
+  const cached = projectionCache;
+  const value =
+    cached &&
+    cached.entries === snapshot.entries &&
+    cached.lastSyncedAt === snapshot.lastSyncedAt &&
+    cached.preference === preference &&
+    cached.profileId === profileId
+      ? cached.value
+      : (projectionCache = {
+          entries: snapshot.entries,
+          lastSyncedAt: snapshot.lastSyncedAt,
+          preference,
+          profileId,
+          value: buildWatchedProjection(snapshot, preference, profileId)
+        }).value;
+  const copy = (list) => list.map((item) => ({ ...item }));
+  return {
+    items: copy(value.items),
+    historyItems: copy(value.historyItems),
+    watchedShowSeedItems: copy(value.watchedShowSeedItems)
+  };
 }
 
 function reconciledPlaybackProgress(snapshot, watchedItems) {
@@ -890,7 +980,12 @@ export const SimklSyncService = {
           : { movies: [], shows: [media] },
         profileId
       });
-      if (entry) entry.status = destination.status;
+      // Cached snapshots share entry objects, so replace the entry instead.
+      if (entry) {
+        snapshot.entries = snapshot.entries.map((candidate) =>
+          candidate === entry ? { ...entry, status: destination.status } : candidate
+        );
+      }
     }
     snapshot.lastCheckedAt = 0;
     saveSnapshot(snapshot, profileId);

@@ -994,10 +994,13 @@ class WatchProgressRepository {
       ...watchedShowSeedItems
     ];
 
+    // Resolved once: the history can hold thousands of items, and each source
+    // lookup reads several settings stores.
+    const hidesItems = selectedContinueWatchingSource() === WatchProgressSource.MDBLIST;
     const recentItems = [
       ...filterForSelectedContinueWatchingSource(allItems).filter(
         (item) =>
-          !this.isHiddenForContinueWatching(item.contentId, item.season) &&
+          !(hidesItems && MdbListTracking.isHidden(item.contentId, item.season)) &&
           (cutoffMs === 0 || Number(item?.updatedAt || 0) >= cutoffMs)
       ),
       // Cloud progress is device-local and must remain visible independently

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { ENV_PROPERTY_KEYS } from "./envProperties.mjs";
+import { runEarlyHomeNavigation } from "./tv-early-nav.mjs";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const option = (name) =>
   process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -11,6 +12,8 @@ if (process.argv.includes("--help")) {
 Node 22+ required. NUVIO_CDP_URL can supply the endpoint instead.
 
 Measurements: --measure (16 Home navigation keys, 100ms p95 budget), --probe
+              --early-nav[=LABEL] (reload, then press 22 keys as soon as Home is
+              interactive; --early-nav-profile adds a CPU profile, which slows the TV)
 Actions: --press=ArrowRight,Enter | --click=SELECTOR | --type=TEXT | --wait=MS
          --early-play (select first 720/1080 card, skipping donation rows), --reload
 Inspect: --ui-summary --inspect-dom --player-state --badge-stats --css-smoke
@@ -91,6 +94,20 @@ try {
   if (process.argv.includes("--reload")) {
     await call("Page.reload", { ignoreCache: true });
     await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  const earlyNav = process.argv.find((a) => a === "--early-nav" || a.startsWith("--early-nav="));
+  if (earlyNav) {
+    const label = option("early-nav") || "early-nav";
+    if (!/^[\w.-]+$/.test(label)) throw new Error("Invalid --early-nav label.");
+    const { summary, data, cpuProfile } = await runEarlyHomeNavigation({
+      call,
+      evaluate,
+      profile: process.argv.includes("--early-nav-profile")
+    });
+    console.log("Early Home navigation: " + JSON.stringify(summary, null, 2));
+    await fs.writeFile(artifact(`${label}.json`), JSON.stringify({ summary, data }, null, 2));
+    if (cpuProfile) await fs.writeFile(artifact(`${label}.cpuprofile`), JSON.stringify(cpuProfile));
+    console.log("Saved " + artifact(`${label}.json`));
   }
   if (process.argv.includes("--badge-benchmark")) {
     const baselineRef = option("baseline-ref") || "358d08c";

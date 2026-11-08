@@ -308,3 +308,52 @@ painted before the snapshot came down (4.6 and 6.0 s) and stayed painted.
 A "Loading catalogs n/55" pill now shows top right during a cold load and
 disappears when every requested catalog is in. In one reload it was visible
 from 7.2 s (snapshot removal) to 9.0 s; the only long task after it was 150 ms.
+
+## Freezes after Home appears on the TV (November 8, 2026)
+
+Traced cold reloads (DevTools timeline plus a 1 ms CPU profile, 22 keys from
+the first catalog row, key latency from `event.timeStamp`). Before these
+changes no run showed a single multi-second stall while the keys were being
+pressed. Instead the main thread was about 98% busy for 5–12 s while the 55
+catalogs arrived. In that window JSON parsing of catalog responses took
+1.1–1.2 s, GC 0.7–1.2 s and native rendering about 4.5 s. Collecting hero
+candidates cost about 0.4 s (normalizing the first items of every catalog to
+keep ten), the Home input signature 0.2 s per check (exporting every synced
+feature) and sidebar member avatars 0.2 s. Those three no longer appear in
+the profiles.
+
+The freezes were full Home renders that had been postponed while keys were
+held. Each ran as one task the moment input paused:
+
+- 1.4 s (run t3): two to four catalogs miss the 3.5 s row timeout on most
+  cold starts, although their responses finish within 4 s. Home dropped those
+  responses, fetched and parsed each catalog again, and forced a full render
+  for each retried row. A timed-out request now keeps running and the retry
+  waits for it. Retried rows mount like other late rows. In the next two
+  runs no catalog was fetched twice, but none timed out either, so the
+  retry path itself is covered by unit tests only.
+- 1.2 s (run t5): every catalog batch re-projects watched titles, and the set
+  grows with titles from rows that are not mounted yet; each growth asked for
+  a full render. Rows mounted later already use the current set, so the full
+  render now runs only when a mounted poster's badge changes.
+
+| Run | Build             | Interactive | Key median / worst | Longest task after interactive                |
+| --- | ----------------- | ----------- | ------------------ | --------------------------------------------- |
+| t3  | three small fixes | 7.3 s       | 0.67 / 2.57 s      | 1.51 s (postponed render)                     |
+| t4  | three small fixes | 5.7 s       | 0.52 / 1.65 s      | 0.30 s                                        |
+| t5  | + retry fix       | 6.1 s       | 0.67 / 5.10 s      | 3.42 s (see below), 1.19 s (postponed render) |
+| t6  | + retry fix       | 5.7 s       | 0.50 / 1.82 s      | 0.32 s                                        |
+| t7  | + watched fix     | 4.9 s       | 0.88 / 1.56 s      | 0.42 s                                        |
+| t8  | + watched fix     | 7.4 s       | 1.22 / 2.80 s      | 0.37 s                                        |
+
+The 3.4 s task in t5 was a key press whose focus() style recalculation
+touched 8 elements but took 1.5 s: the main thread got 1.1 s of CPU in
+3.4 s of wall time. The traced threads (GPU, Viz, compositor, workers)
+together used about one of the four cores, so the rest went to processes
+outside the trace. This could not be attributed or reproduced.
+
+Key latency still varies widely between runs and did not clearly improve.
+Keys pressed while catalogs are still arriving queue behind catalog parsing,
+GC and rendering, so they settle 1–2.8 s late. That saturation, not single
+long tasks, is what remains. Moving catalog fetch, parse and trimming into a
+worker would take the JSON parse and most of its garbage off the main thread.

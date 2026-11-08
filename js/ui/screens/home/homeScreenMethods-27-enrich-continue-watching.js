@@ -167,17 +167,23 @@ export function createHomeScreenMethods27() {
     collectHeroCandidates(rows) {
       const flat = [];
       const selectedKeys = new Set(this.layoutPrefs?.heroCatalogKeys || []);
-      const eligibleRows = selectedKeys.size ? (rows || []).filter((row) => selectedKeys.has(String(row?.homeCatalogKey || ""))) : rows;
-      eligibleRows.forEach((row) => {
-        (row?.result?.data?.items || []).slice(0, 4).forEach((item) => {
+      const eligibleRows = selectedKeys.size
+        ? (rows || []).filter((row) => selectedKeys.has(String(row?.homeCatalogKey || "")))
+        : rows || [];
+      // Runs on every batch of arriving rows; normalizing the first items of
+      // every catalog only to keep ten cost ~0.4 s during startup on a TV.
+      for (const row of eligibleRows) {
+        for (const item of (row?.result?.data?.items || []).slice(0, 4)) {
           const normalized = normalizeHomeRowItem(row, item);
-          if (!normalized?.id || flat.some((entry) => entry.id === normalized.id)) {
-            return;
+          if (normalized?.id && !flat.some((entry) => entry.id === normalized.id)) {
+            flat.push(normalized);
+            if (flat.length === 10) {
+              return flat;
+            }
           }
-          flat.push(normalized);
-        });
-      });
-      return flat.slice(0, 10);
+        }
+      }
+      return flat;
     },
     async enrichHero(baseHero = null) {
       const nextBaseHero = baseHero || this.pickHeroItem(this.rows);

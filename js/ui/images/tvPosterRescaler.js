@@ -67,12 +67,30 @@ export function isJpegHeader(bytes) {
   );
 }
 
+// A 1x1 GIF: the worker publishes it once so the page can confirm it can
+// display urls the worker created before relying on them.
+const PROBE_IMAGE_BASE64 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
 const WORKER_SOURCE = `
 const sourceRect = ${computeSourceRect.toString()};
 const isJpeg = ${isJpegHeader.toString()};
 
 self.onmessage = async (event) => {
-  const { id, url, width, height, fit } = event.data || {};
+  const data = event.data || {};
+  if (data.revoke) {
+    URL.revokeObjectURL(data.revoke);
+    return;
+  }
+  if (data.probe) {
+    let probeUrl = "";
+    try {
+      const bytes = Uint8Array.from(atob("${PROBE_IMAGE_BASE64}"), (char) => char.charCodeAt(0));
+      probeUrl = URL.createObjectURL(new Blob([bytes], { type: "image/gif" }));
+    } catch (_) {}
+    self.postMessage({ probeUrl });
+    return;
+  }
+  const { id, url, width, height, fit, publishUrl } = data;
   let full = null;
   try {
     const response = await fetch(url, { credentials: "omit" });
@@ -98,7 +116,13 @@ self.onmessage = async (event) => {
     const out = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.82 });
     full.close();
     full = null;
-    self.postMessage({ id, ok: true, blob: out });
+    // Creating the url here keeps its registration with the browser process,
+    // a synchronous call, off the page's main thread.
+    if (publishUrl) {
+      self.postMessage({ id, ok: true, objectUrl: URL.createObjectURL(out) });
+    } else {
+      self.postMessage({ id, ok: true, blob: out });
+    }
   } catch (error) {
     if (full) {
       full.close();
@@ -191,6 +215,9 @@ function createPool() {
     nextId: 1,
     cache: new Map(),
     inflight: new Map(),
+    // Whether workers hand back urls they created; false until the page has
+    // shown that it can display one.
+    workerUrls: false,
     disposed: false
   };
   const count = workerCount();
@@ -203,7 +230,53 @@ function createPool() {
     URL.revokeObjectURL(workerUrl);
     return null;
   }
+  probeWorkerUrls(state, state.workers[0]);
   return state;
+}
+
+/**
+ * URL.createObjectURL on the page is a synchronous call to the browser
+ * process, which cost about 0.9 s of main-thread time in the first seconds of
+ * Home on an LG k8lp. Workers can create the urls instead, provided the page can
+ * load a url a worker created; that depends on how the platform treats the
+ * app's origin, so check once with a tiny image before relying on it.
+ */
+function probeWorkerUrls(state, worker) {
+  if (typeof globalThis.Image !== "function") {
+    return;
+  }
+  worker.postMessage({ probe: true });
+}
+
+function finishWorkerUrlProbe(state, worker, probeUrl) {
+  if (!probeUrl) {
+    return;
+  }
+  const image = new globalThis.Image();
+  const done = (ok) => {
+    image.onload = image.onerror = null;
+    if (!state.disposed) {
+      state.workerUrls = ok;
+    }
+    revokeWorkerUrl(worker, probeUrl);
+  };
+  image.onload = () => done(image.naturalWidth > 0);
+  image.onerror = () => done(false);
+  image.src = probeUrl;
+}
+
+function revokeWorkerUrl(worker, objectUrl) {
+  try {
+    worker.postMessage({ revoke: objectUrl });
+  } catch (_) {}
+}
+
+function revokeEntry(entry) {
+  if (entry.worker) {
+    revokeWorkerUrl(entry.worker, entry.objectUrl);
+  } else {
+    URL.revokeObjectURL(entry.objectUrl);
+  }
 }
 
 function spawnWorker(state) {
@@ -214,12 +287,18 @@ function spawnWorker(state) {
     return false;
   }
   worker.onmessage = (event) => {
-    const { id, ok, blob, reason } = event.data || {};
+    const { id, ok, blob, objectUrl, reason, probeUrl } = event.data || {};
+    if (probeUrl !== undefined) {
+      finishWorkerUrlProbe(state, worker, probeUrl);
+      return;
+    }
     const job = state.jobs.get(id);
     if (job) {
       state.jobs.delete(id);
       clearTimeout(job.timer);
-      job.settle(ok ? blob : null, reason);
+      job.settle(ok ? (objectUrl ? { objectUrl, worker } : blob) : null, reason);
+    } else if (objectUrl) {
+      revokeWorkerUrl(worker, objectUrl);
     }
     state.idle.push(worker);
     pump(state);
@@ -252,6 +331,13 @@ function retireWorker(state, worker, reason) {
   });
   state.workers = state.workers.filter((candidate) => candidate !== worker);
   state.idle = state.idle.filter((candidate) => candidate !== worker);
+  // Urls a worker created end with it. Elements already painting one keep
+  // their decoded picture; later requests must not be handed a dead url.
+  for (const [key, entry] of state.cache) {
+    if (entry.worker === worker) {
+      state.cache.delete(key);
+    }
+  }
   try {
     worker.terminate();
   } catch (_) {}
@@ -293,7 +379,8 @@ function pump(state) {
       url: job.url,
       width: job.width,
       height: job.height,
-      fit: job.fit
+      fit: job.fit,
+      publishUrl: state.workerUrls
     });
   }
 }
@@ -312,7 +399,7 @@ function trimCache(state) {
     if (entry.uses > 0) {
       continue;
     }
-    URL.revokeObjectURL(entry.objectUrl);
+    revokeEntry(entry);
     state.cache.delete(key);
   }
 }
@@ -381,20 +468,27 @@ export function rescaleHomeArtwork(url, { width, height, fit, priority = 2, isSt
     waiters: 1
   };
   job.promise = new Promise((resolve) => {
-    job.settle = (blob) => {
+    // `result` is the rescaled blob, or a url the worker already created.
+    job.settle = (result) => {
       // A timeout and a late reply can both land, and settling twice would
       // leak a second object url for the same job.
       if (job.done) {
+        if (result?.objectUrl) revokeWorkerUrl(result.worker, result.objectUrl);
         return;
       }
       job.done = true;
       state.inflight.delete(key);
-      if (!blob || state.disposed) {
+      if (!result || state.disposed) {
+        if (result?.objectUrl) revokeWorkerUrl(result.worker, result.objectUrl);
         resolve(null);
         return;
       }
-      const objectUrl = URL.createObjectURL(blob);
-      const entry = { objectUrl, uses: job.waiters };
+      const objectUrl = result.objectUrl || URL.createObjectURL(result);
+      const entry = {
+        objectUrl,
+        uses: job.waiters,
+        worker: result.objectUrl ? result.worker : null
+      };
       state.cache.set(key, entry);
       trimCache(state);
       resolve(objectUrl);
@@ -450,7 +544,10 @@ export function resetHomeArtworkRescaler() {
       worker.terminate();
     } catch (_) {}
   });
-  state.cache.forEach((entry) => URL.revokeObjectURL(entry.objectUrl));
+  // Worker-created urls ended with their workers above.
+  state.cache.forEach((entry) => {
+    if (!entry.worker) URL.revokeObjectURL(entry.objectUrl);
+  });
   URL.revokeObjectURL(state.workerUrl);
   state.cache.clear();
   state.jobs.clear();

@@ -144,3 +144,103 @@ test("an unsupported fit is refused before any worker is started", async () => {
   );
   assert.equal(created.length, 0, "nothing should spin up for artwork that cannot be rescaled");
 });
+
+/** An Image that loads (or fails) as soon as its src is set. */
+function fakeImage(loads) {
+  return class {
+    set src(value) {
+      this.naturalWidth = loads ? 1 : 0;
+      (loads ? this.onload : this.onerror)?.();
+    }
+  };
+}
+
+/** Answer the url probe and every job, with urls the worker created. */
+function drainWithWorkerUrls() {
+  for (let round = 0; round < 2000; round += 1) {
+    const worker = created.find(
+      (candidate) =>
+        !candidate.terminated && candidate.posted.some((message) => message.probe || message.id)
+    );
+    if (!worker) return;
+    const index = worker.posted.findIndex((message) => message.probe || message.id);
+    const [message] = worker.posted.splice(index, 1);
+    if (message.probe) worker.onmessage({ data: { probeUrl: "blob:probe" } });
+    else
+      worker.onmessage({
+        data: message.publishUrl
+          ? { id: message.id, ok: true, objectUrl: `blob:worker-${message.id}` }
+          : { id: message.id, ok: true, blob: { size: 1 } }
+      });
+  }
+}
+
+async function withImage(loads, run) {
+  globalThis.Image = fakeImage(loads);
+  try {
+    reset();
+    await run();
+  } finally {
+    delete globalThis.Image;
+    reset();
+  }
+}
+
+test("workers create poster urls once the page has displayed one of theirs", () =>
+  withImage(true, async () => {
+    const first = rescaleHomeArtwork("https://art/first.jpg", BOX);
+    drainWithWorkerUrls();
+    await first;
+    const second = rescaleHomeArtwork("https://art/second.jpg", BOX);
+    drainWithWorkerUrls();
+    assert.match(await second, /^blob:worker-/);
+    assert.ok(
+      created.some((worker) => worker.posted.some((message) => message.revoke === "blob:probe")),
+      "the probe url is revoked by the worker that created it"
+    );
+  }));
+
+test("a retired worker's urls are not handed out again", () =>
+  withImage(true, async () => {
+    const warmup = rescaleHomeArtwork("https://art/warmup.jpg", BOX);
+    drainWithWorkerUrls();
+    await warmup;
+    const first = rescaleHomeArtwork("https://art/dies.jpg", BOX);
+    drainWithWorkerUrls();
+    const url = await first;
+    assert.match(url, /^blob:worker-/);
+    for (const worker of created.filter((candidate) => !candidate.terminated)) worker.onerror();
+    const again = rescaleHomeArtwork("https://art/dies.jpg", BOX);
+    drainWithWorkerUrls();
+    assert.notEqual(await again, url, "the dead url must not come back from the cache");
+  }));
+
+test("pages that cannot display worker urls keep creating them on the main thread", () =>
+  withImage(false, async () => {
+    rescaleHomeArtwork("https://art/first.jpg", BOX);
+    drainWithWorkerUrls();
+    const pending = rescaleHomeArtwork("https://art/second.jpg", BOX);
+    drainWithWorkerUrls();
+    assert.match(await pending, /^blob:fake-/);
+  }));
+
+test("trimming the cache revokes worker urls through the worker", () =>
+  withImage(true, async () => {
+    rescaleHomeArtwork("https://art/warmup.jpg", BOX);
+    drainWithWorkerUrls();
+    const url = rescaleHomeArtwork("https://art/kept.jpg", BOX);
+    drainWithWorkerUrls();
+    const kept = await url;
+    assert.match(kept, /^blob:worker-/);
+    releaseHomeArtwork(kept);
+    for (let index = 0; index < 220; index += 1) {
+      const filler = rescaleHomeArtwork(`https://art/trim-${index}.jpg`, BOX);
+      drainWithWorkerUrls();
+      releaseHomeArtwork(await filler);
+    }
+    assert.ok(
+      created.some((worker) => worker.posted.some((message) => message.revoke === kept)),
+      "the worker that created the url is asked to revoke it"
+    );
+    assert.ok(!revoked.includes(kept), "the page does not revoke a url it did not create");
+  }));

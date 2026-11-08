@@ -15,7 +15,13 @@ const ROW_SELECTOR = ".home-row, .home-modern-row, .home-grid-section, .home-row
 const LIFECYCLE_SELECTOR =
   ".home-main .content-poster, .home-main .home-poster-landscape-logo, .home-main .home-continue-bg";
 
-function buildHome({ rescale = null, tv = true, route = "home", constants = {} } = {}) {
+function buildHome({
+  rescale = null,
+  tv = true,
+  route = "home",
+  constants = {},
+  bootSnapshot = false
+} = {}) {
   const context = vm.createContext({
     console,
     setTimeout,
@@ -46,7 +52,8 @@ function buildHome({ rescale = null, tv = true, route = "home", constants = {} }
     shouldRescaleHomeArtwork: rescale?.enabled || (() => false),
     getHomeArtworkPixelRatio: () => 1,
     getHomeArtworkObjectFit: rescale?.fit || (() => "cover"),
-    isRescalableArtworkFit: (fit) => fit === "cover" || fit === "fill"
+    isRescalableArtworkFit: (fit) => fit === "cover" || fit === "fill",
+    isHomeBootSnapshotVisible: () => bootSnapshot
   });
   context.globalThis = context;
   context.innerWidth = 1920;
@@ -342,6 +349,47 @@ test("teardown hands every rescaled poster back to its original url", () => {
     assert.equal(images[0].dataset.src, "https://art/d.jpg");
     assert.equal(images[0].getAttribute("src"), null);
   });
+});
+
+test("an on-screen poster keeps the url the launch snapshot already painted", () => {
+  let rescales = 0;
+  const context = buildHome({
+    bootSnapshot: true,
+    rescale: {
+      enabled: () => true,
+      rescale: () => {
+        rescales += 1;
+        return new Promise(() => {});
+      }
+    }
+  });
+  const near = makeRow(context, { top: 100 });
+  const below = makeRow(context, { top: 1300 });
+  const images = [
+    makeImage(context, { row: near, src: "https://art/first.jpg" }),
+    makeImage(context, { row: below, src: "https://art/below.jpg" })
+  ];
+  const screen = makeScreen(context, { rows: [near, below], images });
+
+  screen.hydrateHomeLazyImages(null, { forceFullScan: true, refreshIndex: true });
+  assert.equal(images[0].src, "https://art/first.jpg", "already decoded, so it paints at once");
+  assert.equal(images[1].getAttribute("src"), null, "a poster below the screen still waits");
+  assert.equal(rescales, 1, "only the poster below the screen is rescaled");
+});
+
+test("without the launch snapshot a poster waits for its rescaled copy", () => {
+  const context = buildHome({
+    rescale: { enabled: () => true, rescale: () => new Promise(() => {}) }
+  });
+  const row = makeRow(context, { top: 100 });
+  const images = [makeImage(context, { row, src: "https://art/later.jpg" })];
+  const screen = makeScreen(context, { rows: [row], images });
+  screen.hydrateHomeLazyImages(null, { forceFullScan: true, refreshIndex: true });
+  assert.equal(
+    images[0].getAttribute("src"),
+    null,
+    "a full-size decode is not started for nothing"
+  );
 });
 
 test("a poster the stylesheet does not crop or stretch is never rescaled", () => {

@@ -1,4 +1,5 @@
 import * as internals from "./homeScreenContext.js";
+import { isHomeBootSnapshotVisible } from "./homeBootSnapshot.js";
 import {
   rescaleHomeArtwork,
   releaseHomeArtwork,
@@ -7,6 +8,15 @@ import {
   getHomeArtworkObjectFit,
   isRescalableArtworkFit
 } from "../../images/tvPosterRescaler.js";
+
+function isOnScreen(rect) {
+  return (
+    rect.bottom > 0 &&
+    rect.top < (Number(globalThis.innerHeight) || 0) &&
+    rect.right > 0 &&
+    rect.left < (Number(globalThis.innerWidth) || 0)
+  );
+}
 
 export function createHomeScreenMethods24() {
   const imageRequests = new WeakMap();
@@ -339,17 +349,22 @@ export function createHomeScreenMethods24() {
         image.src = src;
         return;
       }
+      // The launch snapshot has just painted this very url, so it is already
+      // decoded and paints at once. Waiting for the worker left the card empty
+      // for 1-3 s after the snapshot came down, and swapping in the rescaled
+      // copy later redrew it during startup. These few keep the original until
+      // they are released and hydrated again.
+      if (isHomeBootSnapshotVisible() && isOnScreen(rect)) {
+        image.src = src;
+        return;
+      }
       image.dataset.originalSrc = src;
       const request = {};
       imageRequests.set(image, request);
       // Anything already on screen goes to the front of the queue. Hydration
       // ranks by focused row, which leaves a visible but unfocused row queued
       // behind rows the viewer has not reached, and those cards stay empty.
-      const onScreen =
-        rect.bottom > 0 &&
-        rect.top < (Number(globalThis.innerHeight) || 0) &&
-        rect.right > 0 &&
-        rect.left < (Number(globalThis.innerWidth) || 0);
+      const onScreen = isOnScreen(rect);
       const isStale = () =>
         !image.isConnected || imageRequests.get(image) !== request || image.dataset.originalSrc !== src || Boolean(image.dataset.src);
       rescaleHomeArtwork(src, { width, height, fit, priority: onScreen ? 0 : priority, isStale }).then((objectUrl) => {

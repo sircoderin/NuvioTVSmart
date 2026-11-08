@@ -16,8 +16,10 @@ const SNAPSHOT_MAX_SCROLL_TOP = 120;
 const CAPTURE_DELAY_MS = 5000;
 const CAPTURE_RETRY_MS = 4000;
 const CAPTURE_MAX_RETRIES = 15;
-// The snapshot stays up until the live Home shows its first poster, at most this long.
-const RELEASE_IMAGE_WAIT_MS = 1500;
+// The snapshot stays up until every poster the live Home shows on screen has
+// painted, at most this long, or until the first key press.
+const RELEASE_IMAGE_WAIT_MS = 3000;
+const RELEASE_POLL_MS = 100;
 const RUNTIME_CLASSES = [
   "focused",
   "is-expanded",
@@ -82,38 +84,58 @@ export function releaseHomeBootSnapshot() {
   node?.parentNode?.removeChild(node);
 }
 
-function firstVisiblePoster(container) {
+function visiblePosters(container) {
   const height = globalThis.innerHeight || 1080;
-  for (const image of container.querySelectorAll(
-    ".home-content-card img, .home-continue-card img"
-  )) {
+  const width = globalThis.innerWidth || 1920;
+  return Array.from(
+    container.querySelectorAll(".home-content-card img, .home-continue-card img")
+  ).filter((image) => {
     const rect = image.getBoundingClientRect();
-    if (rect.width > 0 && rect.bottom > 0 && rect.top < height) return image;
-  }
-  return null;
+    return (
+      rect.width > 0 && rect.bottom > 0 && rect.top < height && rect.right > 0 && rect.left < width
+    );
+  });
 }
 
-/** Removes the snapshot once the live Home underneath has painted a poster. */
+function posterSettled(image) {
+  if (!image.isConnected) return true;
+  // Hydration has not handed this poster a url yet.
+  if (!image.getAttribute("src")) return !image.dataset?.src;
+  return image.complete;
+}
+
+/**
+ * Removes the snapshot once every poster the live Home shows on screen has
+ * painted. Coming down after the first one left the catalog rows empty for
+ * seconds, which looked like every poster loading twice.
+ */
 export function releaseHomeBootSnapshotWhenPainted(container) {
   if (releasing || !snapshotElement()) return;
   releasing = true;
+  // Measured once: Home sits at the top while the snapshot is up, and polling
+  // only reads each image's load state.
+  const posters = container ? visiblePosters(container) : [];
+  const startedAt = Date.now();
+  let timer = 0;
   const reveal = () => {
+    clearTimeout(timer);
+    globalThis.removeEventListener?.("keydown", reveal, true);
     if (!releasing) return;
     const frame = globalThis.requestAnimationFrame || ((callback) => setTimeout(callback, 16));
     frame(() => frame(releaseHomeBootSnapshot));
   };
-  const image = container ? firstVisiblePoster(container) : null;
-  if (!image || (image.complete && image.naturalWidth > 0)) {
-    reveal();
-    return;
-  }
-  const timer = setTimeout(reveal, RELEASE_IMAGE_WAIT_MS);
-  const done = () => {
-    clearTimeout(timer);
-    reveal();
+  // The live Home underneath already takes keys; never move focus behind a
+  // static picture.
+  globalThis.addEventListener?.("keydown", reveal, true);
+  const check = () => {
+    if (!releasing) return;
+    if (posters.every(posterSettled) || Date.now() - startedAt >= RELEASE_IMAGE_WAIT_MS) {
+      reveal();
+      return;
+    }
+    timer = setTimeout(check, RELEASE_POLL_MS);
   };
-  image.addEventListener("load", done, { once: true });
-  image.addEventListener("error", done, { once: true });
+  check();
 }
 
 function removeAll(root, selector) {

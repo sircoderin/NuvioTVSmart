@@ -326,31 +326,66 @@ function filterForSelectedContinueWatchingSource(items = []) {
   );
 }
 
-function deduplicateInProgress(items = [], recentLimit = 300) {
-  const seenContentIds = new Set();
+// A tracker records the same stop a moment after the device does, with a
+// coarser timestamp and position.
+const TRACKER_ECHO_WINDOW_MS = 60 * 1000;
+
+function isDeviceProgressItem(item = {}) {
+  const source = String(item.source || "").toLowerCase();
+  return !source || source === WatchProgressSource.NUVIO_SYNC || source.endsWith("_local");
+}
+
+function replacesTrackerEcho(candidate = {}, kept = {}) {
+  return (
+    isDeviceProgressItem(candidate) &&
+    !isDeviceProgressItem(kept) &&
+    Number(kept.updatedAt || 0) - Number(candidate.updatedAt || 0) <= TRACKER_ECHO_WINDOW_MS
+  );
+}
+
+export function deduplicateInProgress(items = [], recentLimit = 300) {
+  const kept = [];
+  const keptIndexByIdentity = new Map();
+
+  (Array.isArray(items) ? items : [])
+    .slice()
+    .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
+    .forEach((item) => {
+      const isSeries = isSeriesType(item?.contentType);
+      // Cloud progress belongs to one file, not to the title it plays.
+      if (!isSeries && isCloudProgressItem(item)) {
+        kept.push(item);
+        return;
+      }
+
+      const identities = Array.from(watchedItemIdentityValues(item))
+        .map((value) => value.toLowerCase())
+        .filter(Boolean);
+      if (!identities.length) {
+        if (!isSeries) kept.push(item);
+        return;
+      }
+
+      const existingIndex = identities
+        .map((identity) => keptIndexByIdentity.get(identity))
+        .find((index) => index !== undefined);
+      if (existingIndex === undefined) {
+        identities.forEach((identity) => keptIndexByIdentity.set(identity, kept.length));
+        kept.push(item);
+        return;
+      }
+      if (!isSeries && replacesTrackerEcho(item, kept[existingIndex])) {
+        kept[existingIndex] = item;
+        identities.forEach((identity) => keptIndexByIdentity.set(identity, existingIndex));
+      }
+    });
 
   return (
-    (Array.isArray(items) ? items : [])
-      .slice()
-      .sort((left, right) => Number(right.updatedAt || 0) - Number(left.updatedAt || 0))
-      .filter((item) => {
-        if (!isSeriesType(item?.contentType)) {
-          return true;
-        }
-
-        const identities = Array.from(watchedItemIdentityValues(item))
-          .map((value) => value.toLowerCase())
-          .filter(Boolean);
-        if (!identities.length || identities.some((identity) => seenContentIds.has(identity))) {
-          return false;
-        }
-        identities.forEach((identity) => seenContentIds.add(identity));
-        return true;
-      })
-      // Apply the recent-item budget after choosing one state per series.
+    kept
+      // Apply the recent-item budget after choosing one state per title.
       // A batch of completed episodes must not displace other titles.
       .slice(0, recentLimit)
-      // Check eligibility after selecting the newest episode, so an older
+      // Check eligibility after selecting the newest state, so an older
       // partial record cannot reappear beside the real Next Up.
       .filter(shouldTreatAsInProgressForContinueWatching)
   );

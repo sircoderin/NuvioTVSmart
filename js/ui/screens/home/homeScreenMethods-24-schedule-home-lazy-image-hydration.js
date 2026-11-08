@@ -384,10 +384,12 @@ export function createHomeScreenMethods24() {
       // Measure rows, never individual images. A full per-image sweep measured
       // 67ms for 1009 images on an LG k8lp, which would land on every vertical
       // move; the row count stays small and a row's images share its band.
-      this.homeLazyImageHydrationIndex.forEach((entry) => {
+      // All rows are measured before any image is released: a released image
+      // invalidates layout, and the next measurement would lay out again.
+      const distant = this.homeLazyImageHydrationIndex.filter((entry) => {
         const row = entry?.row;
         if (!(row instanceof HTMLElement) || !row.isConnected || row === anchorRow) {
-          return;
+          return false;
         }
         const rowRect = row.getBoundingClientRect();
         const gap =
@@ -396,9 +398,9 @@ export function createHomeScreenMethods24() {
             : rowRect.top > viewportRect.bottom
               ? rowRect.top - viewportRect.bottom
               : 0;
-        if (gap <= margin) {
-          return;
-        }
+        return gap > margin;
+      });
+      distant.forEach((entry) => {
         (entry.images || []).forEach((image) => {
           released += this.releaseHomeLazyImage(image) ? 1 : 0;
         });

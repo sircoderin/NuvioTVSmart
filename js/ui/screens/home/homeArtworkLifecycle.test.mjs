@@ -275,6 +275,33 @@ test("rebuilding the index keeps artwork that has already loaded", () => {
   assert.equal(screen.evictDistantHomeLazyImages(null), 1);
 });
 
+test("eviction measures every row before releasing any poster", () => {
+  const context = buildHome();
+  const rows = [makeRow(context, { top: 100 }), makeRow(context, { top: 200 })];
+  const images = rows.map((row, index) =>
+    makeImage(context, { row, src: `https://art/order-${index}.jpg` })
+  );
+  const screen = makeScreen(context, { rows, images });
+  screen.hydrateHomeLazyImages(null, { forceFullScan: true, refreshIndex: true });
+
+  const events = [];
+  for (const row of rows) {
+    const measure = row.getBoundingClientRect;
+    row.getBoundingClientRect = () => {
+      events.push("measure");
+      return measure();
+    };
+    row.top = 9000;
+  }
+  const release = screen.releaseHomeLazyImage.bind(screen);
+  screen.releaseHomeLazyImage = (image) => {
+    events.push("release");
+    return release(image);
+  };
+  assert.equal(screen.evictDistantHomeLazyImages(null), 2);
+  assert.deepEqual(events, ["measure", "measure", "release", "release"]);
+});
+
 test("a poster closer than the evict margin is left alone", () => {
   const context = buildHome();
   const row = makeRow(context, { top: 100 });

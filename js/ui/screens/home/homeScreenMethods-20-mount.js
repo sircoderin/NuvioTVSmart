@@ -12,6 +12,8 @@ export function createHomeScreenMethods20() {
     ProfileManager,
     Platform,
     buildWatchedTitleIdSet,
+    isTitleItemWatched,
+    normalizeCatalogItem,
     getSidebarProfileState,
     setModernSidebarPillIconOnly,
     setModernSidebarExpanded,
@@ -318,9 +320,39 @@ export function createHomeScreenMethods20() {
       const rendered = this.renderedWatchedTitleIds;
       const unchanged =
         rendered instanceof Set && rendered.size === this.watchedTitleIds.size && [...rendered].every((id) => this.watchedTitleIds.has(id));
-      if (!unchanged) {
+      if (!unchanged && !this.adoptWatchedTitleIdsInPlace(rendered, this.watchedTitleIds)) {
         this.requestBackgroundRender();
       }
+    },
+    // Catalog batches grow the watched set with titles from rows that are not
+    // mounted yet, and those rows pick up the current set when they mount.
+    // Re-rendering Home is only needed when a mounted poster's badge changes.
+    adoptWatchedTitleIdsInPlace(previous, next) {
+      const catalogs = this.container?.querySelector(".home-catalogs-virtual");
+      if (!(previous instanceof Set) || !catalogs || !this.modernCatalogRenderOptions || !this.usesVirtualHomeRows?.()) {
+        return false;
+      }
+      const rowsByKey = new Map((this.rows || []).map((row) => [String(row?.homeCatalogKey || ""), row]));
+      for (const section of catalogs.querySelectorAll(".home-modern-row")) {
+        const row = rowsByKey.get(section.dataset.rowKey);
+        if (!row) {
+          return false;
+        }
+        const items = row.result?.data?.items || [];
+        for (const card of section.querySelectorAll(".home-poster-card[data-item-index]")) {
+          const item = items[Number(card.dataset.itemIndex)];
+          if (!item) {
+            return false;
+          }
+          const normalized = normalizeCatalogItem(item, row.type || "movie");
+          if (isTitleItemWatched(normalized, previous) !== isTitleItemWatched(normalized, next)) {
+            return false;
+          }
+        }
+      }
+      this.modernCatalogRenderOptions = { ...this.modernCatalogRenderOptions, watchedTitleIds: next };
+      this.renderedWatchedTitleIds = next;
+      return true;
     }
   };
 }

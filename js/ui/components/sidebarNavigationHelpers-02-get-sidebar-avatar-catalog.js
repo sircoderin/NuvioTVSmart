@@ -40,18 +40,37 @@ export function getSidebarAvatarCatalog(hasMemberAccess = false) {
   return sidebarAvatarCatalogPromises.get(cacheKey);
 }
 
+async function resolveSidebarAvatarUrl(avatarId, memberAccessPromise, cacheOnly) {
+  if (!avatarId) {
+    return null;
+  }
+  const standardCatalog = cacheOnly ? AvatarRepository.getCachedAvatarCatalog(false) : await getSidebarAvatarCatalog(false);
+  const standardUrl = AvatarRepository.getAvatarImageUrl(avatarId, standardCatalog);
+  if (standardUrl) {
+    return standardUrl;
+  }
+  // Supporter avatars are read and turned into object urls as a whole set
+  // (~0.2 s while Home starts on a TV), so load them only for a profile that
+  // actually uses one.
+  const hasMemberAvatarAccess = MemberAccessRepository.hasEntitlement(await memberAccessPromise, "PROFILE_AVATARS");
+  if (!hasMemberAvatarAccess) {
+    return null;
+  }
+  const catalog = cacheOnly ? AvatarRepository.getCachedAvatarCatalog(true) : await getSidebarAvatarCatalog(true);
+  return AvatarRepository.getAvatarImageUrl(avatarId, catalog);
+}
+
 export async function getSidebarProfileState({ cacheOnly = false } = {}) {
   const activeProfileId = String(ProfileManager.getActiveProfileId() || "");
-  const memberAccess = cacheOnly ? MemberAccessRepository.getCachedAccess() : await MemberAccessRepository.getAccess().catch(() => null);
-  const hasMemberAvatarAccess = MemberAccessRepository.hasEntitlement(memberAccess, "PROFILE_AVATARS");
-  const [profiles, avatarCatalog] = await Promise.all([
-    ProfileManager.getProfiles(),
-    cacheOnly ? AvatarRepository.getCachedAvatarCatalog(hasMemberAvatarAccess) : getSidebarAvatarCatalog(hasMemberAvatarAccess)
-  ]);
+  const memberAccessPromise = cacheOnly
+    ? Promise.resolve(MemberAccessRepository.getCachedAccess())
+    : MemberAccessRepository.getAccess().catch(() => null);
+  const profiles = await ProfileManager.getProfiles();
   const activeProfile =
     profiles.find((profile) => String(profile.id || profile.profileIndex || "1") === activeProfileId) || profiles[0] || null;
   const activeProfileAvatarUrl =
-    String(activeProfile?.avatarUrl || "").trim() || AvatarRepository.getAvatarImageUrl(activeProfile?.avatarId, avatarCatalog);
+    String(activeProfile?.avatarUrl || "").trim() ||
+    (await resolveSidebarAvatarUrl(activeProfile?.avatarId, memberAccessPromise, cacheOnly));
 
   return {
     activeProfileName: String(activeProfile?.name || t("sidebar.profileFallback")).trim() || t("sidebar.profileFallback"),

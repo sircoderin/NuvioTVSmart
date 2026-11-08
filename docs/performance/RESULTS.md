@@ -227,6 +227,8 @@ includes work queued behind the key.
 | Last-row deferral (81d532d4)                 | 4.4 s / 6.3 s         | 0.7 s / 3.7 s   | 417 / 901 ms   | 7.4 / 9.5 s            | 0 / 1 (3.3 s)            |
 | Batches mount without full render (37bef267) | 1.4 s / 1.1 s         | 0.45 s / 0.47 s | 488 / 216 ms   | 7.6 / 4.9 s            | 0 / 0                    |
 | All catalogs requested up front (dcfa49d0)   | 5.5 s / 1.1 s         | 3.6 s / 0.27 s  | 942 / 171 ms   | 8.8 / 3.8 s            | 1 (0.5 s) / 0            |
+| Worker-created poster urls (49c45da7)        | 3.6 s / 1.5 s         | 3.2 s / 0.84 s  | 442 / 436 ms   | 8.0 / 5.4 s            | 1 (0.55 s) / 1 (0.3 s)   |
+| Badge prerender waits for quiet (35b0e2ff)   | 2.1 s / 1.3 s         | 0.58 s / 0.57 s | 564 / 311 ms   | 4.3 / 4.7 s            | 1 (0.25 s) / 1 (0.25 s)  |
 
 Findings:
 
@@ -246,7 +248,14 @@ Findings:
 - Out-of-order catalog arrival unmounted the focused row in one run of
   0036e224 (keys after it did nothing, which looked fast); dcfa49d0 keeps the
   focused row in the window.
+- A profiled run of 49c45da7 showed `URL.createObjectURL` on the main thread
+  falling from 874 ms to 115 ms (the rest is not poster work), and
+  `toDataURL` at 825 ms: the startup stream badge prerender drawing every badge
+  image to a PNG data URL. 35b0e2ff runs that prerender once the remote has
+  been idle for 5 s.
 - Stalls of several seconds still occur in some runs on every build (3.6 s in
   the first dcfa49d0 run, after all catalogs had arrived; 3.7 s on 81d532d4).
-  Their cause is not identified yet; the next step is a profiled run that
-  catches one.
+  Their cause is not identified yet. None appeared in the three runs after
+  49c45da7's profiled run (that run and both 35b0e2ff runs), which is too few
+  to call them gone. The 35b0e2ff runs each had one full render of about
+  250 ms during the keys; its trigger is not traced yet.

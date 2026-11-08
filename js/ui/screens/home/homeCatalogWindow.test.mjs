@@ -239,6 +239,8 @@ async function loadedRowsScreen() {
     homeRowVirtualMountedRows: new Map(rows.map((r) => [r.homeCatalogKey, r])),
     rows,
     container: { querySelector: () => catalogs },
+    getCurrentFocusedNode: () => null,
+    getNodeRowKey: (node) => node?.rowKey || "",
     captureVirtualHomeRowMetrics() {},
     syncVirtualHomeRowSpacers() {},
     mountVirtualHomeWindow() {
@@ -277,4 +279,18 @@ test("loaded rows render Home in full when the hero changes", () => {
   screen.heroCandidates = [{ id: "tt1" }, { id: "tt2" }];
   screen.publishLoadedHomeRows(before);
   assert.deepEqual(renders, ["render"], "hero indicators come from the full render");
+});
+
+test("rows that arrive inside the window keep the focused row mounted", async () => {
+  const { screen, row, mounts } = await loadedRowsScreen();
+  const model = screen.homeRowVirtualWindow;
+  const initial = Array.from({ length: 9 }, (_, index) => row(`r${index}`));
+  screen.rows = initial;
+  model.setRows(initial);
+  screen.homeRowVirtualMountedRows = new Map(initial.map((r) => [r.homeCatalogKey, r]));
+  screen.getCurrentFocusedNode = () => ({ rowKey: "r7" });
+  // Catalogs ordered above the focused row finish after focus moved past them.
+  screen.rows = [initial[0], initial[1], row("x1"), row("x2"), row("x3"), ...initial.slice(2)];
+  assert.equal(screen.mountLoadedVirtualHomeRows(), true);
+  assert.ok(mounts.at(-1).includes("r7"), `focused row left the window: ${mounts.at(-1)}`);
 });

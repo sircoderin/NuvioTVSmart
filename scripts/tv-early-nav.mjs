@@ -153,6 +153,8 @@ export async function runEarlyHomeNavigation({ call, evaluate, profile = false }
       },
       rowsOnScreen: Object.keys(data.rowsSeen).length,
       lastRowOnScreenMs: quantile(Object.values(data.rowsSeen), 1),
+      // Keys pressed after Home lost focus do nothing, which makes them look fast.
+      focusLostAtKey: data.keys.findIndex((k) => k.focus === "none") + 1 || null,
       focusPath: data.keys.map((k) => k.focus)
     };
     return { summary, data, cpuProfile };

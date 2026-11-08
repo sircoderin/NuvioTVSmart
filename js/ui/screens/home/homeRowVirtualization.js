@@ -188,6 +188,10 @@ export function createHomeRowVirtualizationMethods() {
       if (mountedKeys.some((key) => rowsByKey.get(key) !== mountedRows.get(key))) return false;
       this.captureVirtualHomeRowMetrics();
       model.setRows(this.rows || []);
+      // Catalogs finish out of order, so rows can land inside the window above
+      // focus and push the focused row out of it, which would unmount it.
+      const focusKey = this.getNodeRowKey(this.getCurrentFocusedNode());
+      if (focusKey) model.include(focusKey);
       const mounted = new Set(mountedKeys);
       const windowKeys = model.entries.slice(model.start, model.end).map((entry) => entry.key);
       if (windowKeys.length !== mounted.size || windowKeys.some((key) => !mounted.has(key))) {

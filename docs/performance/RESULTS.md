@@ -212,3 +212,41 @@ mounts rows itself (about 200 ms at 25x), so typical slow keys are a little
 slower and total navigation CPU is unchanged. That cost is building row
 markup and snapshotting it for the Home DOM diff (`remember`/`signature` in
 `homeDomUpdate.js`), which the keyed Home render is meant to remove.
+
+## Early Home navigation on the TV (November 8, 2026)
+
+LG 43UQ70003LB (webOS 7.6, k8lp), modern Home, 55 catalogs, signed-in
+profile. `npm run perf:tv -- --early-nav` reloads the app and presses 8 Down,
+6 Right and 8 Up keys 350 ms apart as soon as Home is interactive. Two runs
+per build; "settled" is the first task after the key's next frame, so it
+includes work queued behind the key.
+
+| Build                                        | Slowest key (settled) | Longest task    | Next frame p95 | Long tasks during keys | Full renders during keys |
+| -------------------------------------------- | --------------------- | --------------- | -------------- | ---------------------- | ------------------------ |
+| Before (ab26c949, one clean run)             | 6.2 s                 | 1.9 s           | 937 ms         | 8.0 s                  | 0                        |
+| Last-row deferral (81d532d4)                 | 4.4 s / 6.3 s         | 0.7 s / 3.7 s   | 417 / 901 ms   | 7.4 / 9.5 s            | 0 / 1 (3.3 s)            |
+| Batches mount without full render (37bef267) | 1.4 s / 1.1 s         | 0.45 s / 0.47 s | 488 / 216 ms   | 7.6 / 4.9 s            | 0 / 0                    |
+| All catalogs requested up front (dcfa49d0)   | 5.5 s / 1.1 s         | 3.6 s / 0.27 s  | 942 / 171 ms   | 8.8 / 3.8 s            | 1 (0.5 s) / 0            |
+
+Findings:
+
+- A CPU profile of the first build showed full Home renders of up to 5 s and
+  gaps of 50–370 ms between samples, about 2.8 s in total, in which the whole
+  renderer stalled; the function on top at that moment received the gap
+  (`atob`, `addEventListener`). Steady costs were lazy-image hydration and
+  eviction (layout reads), the hero description bounds, `createObjectURL` for
+  rescaled posters and `focus()` (the style update for the class change made
+  just before it).
+- Home requested one catalog per Down press, about 500 ms apart, although each
+  request took 120–650 ms; 13 of 55 catalogs were requested in a run, and a row
+  reached the screen 0.5–1.8 s after its data (the constrained-TV 1 s row batch
+  plus main-thread work). With every catalog requested once the first rows are
+  on screen, all 55 arrived 1.4–2.0 s after Home was interactive and the JS heap
+  was 20.5 MB.
+- Out-of-order catalog arrival unmounted the focused row in one run of
+  0036e224 (keys after it did nothing, which looked fast); dcfa49d0 keeps the
+  focused row in the window.
+- Stalls of several seconds still occur in some runs on every build (3.6 s in
+  the first dcfa49d0 run, after all catalogs had arrived; 3.7 s on 81d532d4).
+  Their cause is not identified yet; the next step is a profiled run that
+  catches one.

@@ -26,6 +26,7 @@ import {
 } from "./ui/screens/home/homeBootSnapshot.js";
 import { renderAddonRemotePage } from "./bootstrap/renderAddonRemotePage.js";
 import { preloadStreamBadgeImages } from "./ui/screens/stream/streamScreen.js";
+import { whenInputQuiet } from "./core/util/whenInputQuiet.js";
 import { warmStreamingLibs } from "./runtime/loadStreamingLibs.js";
 import { Platform } from "./platform/index.js";
 import { TizenCapabilities } from "./platform/tizen/tizenCapabilities.js";
@@ -313,8 +314,11 @@ async function enterWithLastProfile({ restoreWebOsRoute = false } = {}) {
     })
     .then(() => {
       // The badge prerender boots the webOS media runtime; keep it after sync.
+      // It draws every badge image on the main thread, which cost about 0.8 s
+      // while the viewer moved around Home on an LG k8lp, and only the stream
+      // picker shows the badges, so it waits for the remote to go quiet.
       if (activeProfile) {
-        return preloadStreamBadgeImages();
+        return whenInputQuiet(() => preloadStreamBadgeImages());
       }
       return null;
     })

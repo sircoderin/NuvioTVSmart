@@ -293,3 +293,18 @@ were still painted 150 ms after Back.
 
 Still open: about 100 `layoutPreferences` reads per details open (a clone of a
 7 KB value each), and the first open after a launch still takes about 0.7 s.
+
+## Launch snapshot handover on the TV (November 8, 2026)
+
+On a fresh reload the launch snapshot came down at 5.3 s, as soon as the live
+Home painted one image (a Continue Watching card). None of the 7 posters in
+the visible catalog row had painted yet; they filled in between 6.2 and 9.2 s,
+because each waited for the rescale workers although the snapshot had just
+loaded the same urls. The snapshot now stays until every on-screen poster has
+painted (3 s at most, or the first key press), and on-screen posters take the
+url the snapshot already decoded. In two reloads the visible row was 7/7
+painted before the snapshot came down (4.6 and 6.0 s) and stayed painted.
+
+A "Loading catalogs n/55" pill now shows top right during a cold load and
+disappears when every requested catalog is in. In one reload it was visible
+from 7.2 s (snapshot removal) to 9.0 s; the only long task after it was 150 ms.

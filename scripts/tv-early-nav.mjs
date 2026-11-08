@@ -25,6 +25,17 @@ const PROBE = String.raw`(() => {
       for (const e of list.getEntries()) probe.longTasks.push({ start: e.startTime, duration: e.duration });
     }).observe({ entryTypes: ["longtask"] });
   } catch (_) {}
+  // Posters fill the default 250-entry buffer before the catalogs finish.
+  try { performance.setResourceTimingBufferSize(3000); } catch (_) {}
+  // First time each row has cards on screen, polled lightly so the probe
+  // adds little work of its own. Accurate to about 250 ms.
+  probe.rowsSeen = {};
+  setInterval(() => {
+    for (const row of document.querySelectorAll("#home [data-row-key]")) {
+      const key = row.dataset.rowKey;
+      if (key && !(key in probe.rowsSeen) && row.querySelector(".home-content-card")) probe.rowsSeen[key] = performance.now();
+    }
+  }, 250);
   const timer = setInterval(() => {
     const home = document.getElementById("home");
     if (home && home.querySelector(".focused") && home.querySelector(".home-content-card, .home-continue-card")) {
@@ -88,7 +99,12 @@ export async function runEarlyHomeNavigation({ call, evaluate, profile = false }
       const p = window.__nuvioEarlyNavProbe, s = ${navStart};
       return { interactive: p.marks.homeInteractive, navStart: s, keys: p.keys,
         renders: p.renders.map((r) => ({ start: r.end - r.ms, ms: r.ms })),
-        longTasks: p.longTasks.filter((t) => t.start >= s) };
+        longTasks: p.longTasks.filter((t) => t.start >= s),
+        rowsSeen: p.rowsSeen,
+        // Only the catalog type/id part of each URL: addon base URLs can carry keys.
+        catalogRequests: performance.getEntriesByType("resource")
+          .filter((e) => e.name.includes("/catalog/"))
+          .map((e) => ({ catalog: e.name.split("/catalog/")[1].split("?")[0], start: e.startTime, responseEnd: e.responseEnd })) };
     })()`);
     const lastKeyAt = data.keys.length ? data.keys[data.keys.length - 1].at : data.navStart;
     const navRenders = data.renders.filter((r) => r.start >= data.navStart);
@@ -120,6 +136,23 @@ export async function runEarlyHomeNavigation({ call, evaluate, profile = false }
       longTaskMax: Math.round(data.longTasks.reduce((max, t) => Math.max(max, t.duration), 0)),
       homeRendersDuringKeys: duringKeys.map((r) => Math.round(r.ms)),
       homeRendersAfterKeys: navRenders.length - duringKeys.length,
+      catalogRequests: data.catalogRequests.length,
+      lastCatalogResponseMs: quantile(
+        data.catalogRequests.map((r) => r.responseEnd),
+        1
+      ),
+      catalogRequestMs: {
+        p50: quantile(
+          data.catalogRequests.map((r) => r.responseEnd - r.start),
+          0.5
+        ),
+        max: quantile(
+          data.catalogRequests.map((r) => r.responseEnd - r.start),
+          1
+        )
+      },
+      rowsOnScreen: Object.keys(data.rowsSeen).length,
+      lastRowOnScreenMs: quantile(Object.values(data.rowsSeen), 1),
       focusPath: data.keys.map((k) => k.focus)
     };
     return { summary, data, cpuProfile };

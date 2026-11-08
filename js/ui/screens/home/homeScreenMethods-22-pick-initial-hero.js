@@ -60,30 +60,34 @@ export function createHomeScreenMethods22() {
         if (shouldContinue && !shouldContinue()) {
           return null;
         }
-        const result = this.filterUnreleasedResult(
-          await withTimeout(
-            options.prefetchedResults?.get(catalog) ??
-              catalogRepository.getCatalog({
-                addonBaseUrl: catalog.addonBaseUrl,
-                addonId: catalog.addonId,
-                addonName: catalog.addonName,
-                catalogId: catalog.catalogId,
-                catalogName: catalog.catalogName,
-                type: catalog.type,
-                skip: 0,
-                skipStep: catalog.skipStep,
-                supportsSkip: catalog.supportsSkip !== false
-              }),
-            timeoutMs,
-            { status: "error", message: "timeout" }
-          )
-        );
+        const request =
+          options.prefetchedResults?.get(catalog) ??
+          catalogRepository.getCatalog({
+            addonBaseUrl: catalog.addonBaseUrl,
+            addonId: catalog.addonId,
+            addonName: catalog.addonName,
+            catalogId: catalog.catalogId,
+            catalogName: catalog.catalogName,
+            type: catalog.type,
+            skip: 0,
+            skipStep: catalog.skipStep,
+            supportsSkip: catalog.supportsSkip !== false
+          });
+        const timedOut = { status: "error", message: "timeout" };
+        const response = await withTimeout(request, timeoutMs, timedOut);
+        const result = this.filterUnreleasedResult(response);
         const rowKey = buildModernRowKey(catalog);
+        const homeCatalogKey = buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId);
+        // The request keeps running past the timeout; the retry waits for it
+        // rather than fetching and parsing the same catalog a second time.
+        if (allowLoading && response === timedOut) {
+          (this.pendingCatalogRequests ||= new Map()).set(homeCatalogKey, request);
+        }
         const row = {
           ...catalog,
           result: result?.status === "success" ? result : allowLoading ? { status: "loading" } : result,
           loadingItems: allowLoading && result?.status !== "success" ? buildCatalogLoadingItems(rowKey, loadingCount) : null,
-          homeCatalogKey: buildCatalogOrderKey(catalog.addonId, catalog.type, catalog.catalogId),
+          homeCatalogKey,
           homeCatalogDisableKey: buildCatalogDisableKey(catalog.addonBaseUrl, catalog.type, catalog.catalogId, catalog.catalogName)
         };
         if (onRow && (row.result?.status === "success" || allowLoading)) {
@@ -139,29 +143,33 @@ export function createHomeScreenMethods22() {
           const batch = pendingRows.slice(index, index + retryBatchSize);
           const settled = await Promise.allSettled(
             batch.map(async (row) => {
-              const result = this.filterUnreleasedResult(
-                await withTimeout(
-                  catalogRepository.getCatalog({
-                    addonBaseUrl: row.addonBaseUrl,
-                    addonId: row.addonId,
-                    addonName: row.addonName,
-                    catalogId: row.catalogId,
-                    catalogName: row.catalogName,
-                    type: row.type,
-                    skip: 0,
-                    skipStep: row.skipStep,
-                    supportsSkip: row.supportsSkip !== false
-                  }),
-                  HOME_ROW_RETRY_TIMEOUT_MS,
-                  { status: "error", message: "timeout" }
-                )
-              );
+              const request = () =>
+                catalogRepository.getCatalog({
+                  addonBaseUrl: row.addonBaseUrl,
+                  addonId: row.addonId,
+                  addonName: row.addonName,
+                  catalogId: row.catalogId,
+                  catalogName: row.catalogName,
+                  type: row.type,
+                  skip: 0,
+                  skipStep: row.skipStep,
+                  supportsSkip: row.supportsSkip !== false
+                });
+              const timedOut = { status: "error", message: "timeout" };
+              const pending = this.pendingCatalogRequests?.get(row.homeCatalogKey);
+              this.pendingCatalogRequests?.delete(row.homeCatalogKey);
+              let response = pending ? await withTimeout(pending, HOME_ROW_RETRY_TIMEOUT_MS, timedOut) : null;
+              if (!response || (response !== timedOut && response.status !== "success")) {
+                response = await withTimeout(request(), HOME_ROW_RETRY_TIMEOUT_MS, timedOut);
+              }
+              const result = this.filterUnreleasedResult(response);
               if (result?.status !== "success") {
                 return null;
               }
               if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
                 return null;
               }
+              const heroBefore = this.captureHomeHeroState();
               const updatedRow = { ...row, result };
               const combinedByKey = new Map((this.rows || []).map((entry) => [entry.homeCatalogKey, entry]));
               combinedByKey.set(updatedRow.homeCatalogKey, updatedRow);
@@ -170,7 +178,7 @@ export function createHomeScreenMethods22() {
               if (!this.heroItem) {
                 this.heroItem = this.pickInitialHero();
               }
-              this.requestBackgroundRender();
+              this.publishLoadedHomeRows(heroBefore);
               return updatedRow;
             })
           );

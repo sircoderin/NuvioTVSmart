@@ -137,27 +137,68 @@ test("rows from a superseded load are not merged", async () => {
   }
 });
 
-test("rows loaded ahead render at once while focus is on the last row", async () => {
-  const { createHomeScreenMethods04 } =
-    await import("./homeScreenMethods-04-get-hero-focus-delay.js");
-  const methods = createHomeScreenMethods04();
+function deferralScreen(methods, { virtualRows }) {
   const lastRowCard = { id: "last" };
   const middleCard = { id: "middle" };
-  const screen = {
+  return {
     ...methods,
-    layoutMode: "modern",
+    layoutMode: virtualRows ? "modern" : "classic",
     hasUserInteractedSinceHomePaint: true,
     shouldSuspendModernViewportFocusSync: () => false,
+    usesVirtualHomeRows: () => virtualRows,
     isPerformanceConstrained: () => true,
     isLegacyTvRuntime: () => false,
     lastHomeInputAt: Date.now(),
     navModel: { rows: [[middleCard], [lastRowCard]] },
+    lastRowCard,
+    middleCard,
     focused: lastRowCard,
     getCurrentFocusedNode() {
       return this.focused;
     }
   };
+}
+
+test("rows loaded ahead render at once while focus is on the last row", async () => {
+  const { createHomeScreenMethods04 } =
+    await import("./homeScreenMethods-04-get-hero-focus-delay.js");
+  const screen = deferralScreen(createHomeScreenMethods04(), { virtualRows: false });
   assert.equal(screen.shouldDeferHomeRenderForInput(), false);
-  screen.focused = middleCard;
+  screen.focused = screen.middleCard;
   assert.equal(screen.shouldDeferHomeRenderForInput(), true, "other rows keep the input deferral");
+});
+
+test("virtual rows keep the input deferral on the last row", async () => {
+  const { createHomeScreenMethods04 } =
+    await import("./homeScreenMethods-04-get-hero-focus-delay.js");
+  const screen = deferralScreen(createHomeScreenMethods04(), { virtualRows: true });
+  assert.equal(screen.shouldDeferHomeRenderForInput(), true);
+});
+
+test("moving down from the last mounted row mounts rows loaded since the render", async () => {
+  const { createHomeRowVirtualizationMethods } = await import("./homeRowVirtualization.js");
+  const { HomeRowVirtualWindow } = await import("./homeRowVirtualWindow.js");
+  const row = (id) => ({ homeCatalogKey: id, result: { data: { items: [{ id }] } } });
+  const model = new HomeRowVirtualWindow();
+  model.setRows(["a", "b", "c"].map(row));
+  const mounted = [];
+  const screen = {
+    ...createHomeRowVirtualizationMethods(),
+    layoutMode: "modern",
+    isPerformanceConstrained: () => true,
+    homeRowVirtualWindow: model,
+    rows: ["a", "b", "c", "d", "e"].map(row),
+    getNodeRowKey: (node) => node.rowKey,
+    captureVirtualHomeRowMetrics() {},
+    mountVirtualHomeWindow() {
+      mounted.push(model.entries.slice(model.start, model.end).map((entry) => entry.key));
+    },
+    getNavigationRowNodes: (key) => [{ rowKey: key }]
+  };
+  assert.deepEqual(screen.getVirtualHomeAdjacentRow({ rowKey: "c" }, 1), [{ rowKey: "d" }]);
+  assert.deepEqual(mounted, [["a", "b", "c", "d", "e"]]);
+
+  screen.rows = ["a", "b", "c", "d", "e"].map(row);
+  assert.deepEqual(screen.getVirtualHomeAdjacentRow({ rowKey: "e" }, 1), [], "the end of Home");
+  assert.equal(mounted.length, 1, "nothing new to mount");
 });

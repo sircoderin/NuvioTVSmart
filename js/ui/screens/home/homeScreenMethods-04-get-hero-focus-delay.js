@@ -206,10 +206,11 @@ export function createHomeScreenMethods04() {
         return true;
       }
       // Rows loaded ahead of focus must appear while a direction key is held
-      // at the last row; deferring them would stop navigation there.
+      // at the last row; deferring them would stop navigation there. Virtual
+      // rows mount them from navigation instead, without a full render.
       const navRows = this.navModel?.rows || [];
       const focusedNode = this.getCurrentFocusedNode();
-      if (focusedNode && navRows.length && navRows[navRows.length - 1].includes(focusedNode)) {
+      if (focusedNode && navRows.length && navRows[navRows.length - 1].includes(focusedNode) && !this.usesVirtualHomeRows?.()) {
         return false;
       }
       // Tizen fast path: on constrained/legacy runtimes a full innerHTML

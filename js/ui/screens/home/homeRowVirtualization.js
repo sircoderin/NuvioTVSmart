@@ -159,6 +159,21 @@ export function createHomeRowVirtualizationMethods() {
       }
     },
 
+    // Rows loaded since the last render are not in the window yet. Moving
+    // down from the last mounted row adds them, so navigation does not wait
+    // for a full Home render.
+    mountVirtualHomeRowsLoadedAfter(key) {
+      const model = this.homeRowVirtualWindow;
+      this.captureVirtualHomeRowMetrics();
+      model.setRows(this.rows || []);
+      const index = model.entries.findIndex((entry) => entry.key === key);
+      const next = index >= 0 ? model.entries[index + 1] : null;
+      if (!next) return [];
+      model.include(next.key);
+      this.mountVirtualHomeWindow();
+      return this.getNavigationRowNodes(next.key);
+    },
+
     getVirtualHomeAdjacentRow(current, delta) {
       const model = this.homeRowVirtualWindow;
       if (!model || !this.usesVirtualHomeRows()) return undefined;
@@ -168,7 +183,7 @@ export function createHomeRowVirtualizationMethods() {
       if (index >= 0) {
         next = model.entries[index + delta];
         if (!next) {
-          if (delta > 0) return [];
+          if (delta > 0) return this.mountVirtualHomeRowsLoadedAfter(key);
           const continueRows = this.navModel.rows.filter(
             (nodes) => !nodes[0]?.closest(".home-modern-row")
           );

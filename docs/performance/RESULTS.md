@@ -179,3 +179,36 @@ snapshot stores their original URLs instead. These are relative numbers for
 comparing builds on one machine. Absolute TV timings, and whether full-size
 snapshot posters cost more decode time on the TV than they save, still need a
 TV measurement.
+
+## Early Home navigation while rows load (local harness, not yet measured on the TV)
+
+On the TV, D-pad navigation stuttered for roughly the first ten seconds after
+launch. In the harness at CPU 25x (about the TV's speed; its SoC is the LG
+k8lp, four Cortex-A55 cores), pressing keys as soon as Home was interactive
+(`--early-keys --key-gap=300 '--keys=Down*16,Up*6'`) reproduced it: full Home
+renders of 200–440 ms ran between key presses. They came through
+`requestRender`, whose input deferral made an exception when focus was on the
+last navigation row, so rows loaded ahead of focus could appear while Down
+was held. Modern Home on constrained TVs only mounts about six rows early on,
+so a quick Down run reached that row and every catalog batch then rendered
+the whole Home mid-navigation.
+
+Virtual rows no longer take that exception: moving down from the last mounted
+row adds rows loaded since the last render to the virtual window and mounts
+the next one, and the full render waits until input stops. Alternating A/B,
+six launches per build:
+
+| Median of 6 launches              | Before   | After                  |
+| --------------------------------- | -------- | ---------------------- |
+| Full Home renders during the keys | 4        | 1 (after the last key) |
+| Slowest key, worst launch         | 546 ms   | 293 ms                 |
+| Longest key wait in the queue     | 103 ms   | 19 ms                  |
+| Longest task during navigation    | 356 ms   | 249 ms                 |
+| Key to next frame, p95            | 126 ms   | 154 ms                 |
+| Long tasks during navigation      | 2,222 ms | 2,206 ms               |
+
+The stalls are gone, but each Down at the bottom while rows are loading now
+mounts rows itself (about 200 ms at 25x), so typical slow keys are a little
+slower and total navigation CPU is unchanged. That cost is building row
+markup and snapshotting it for the Home DOM diff (`remember`/`signature` in
+`homeDomUpdate.js`), which the keyed Home render is meant to remove.

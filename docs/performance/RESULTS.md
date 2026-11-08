@@ -259,3 +259,37 @@ Findings:
   49c45da7's profiled run (that run and both 35b0e2ff runs), which is too few
   to call them gone. The 35b0e2ff runs each had one full render of about
   250 ms during the keys; its trigger is not traced yet.
+
+## Opening a title from Home on the TV (November 8, 2026)
+
+Opening a title from Home did no network wait before the details appeared: the
+metadata was already cached. The details screen appeared 1.1–1.7 s after OK
+(three opens of one movie, account tracking with Simkl) because one main-thread
+task of 0.9–1.4 s ran first. A localStorage count for one open showed why:
+`traktSettings` and `trackingSourceMemory` were each read 2,018 times,
+`simklAuthState` 1,426 times, `activeProfileId` 10,024 times, and the 64 KB
+Simkl snapshot was parsed 21 times (5.2 MB of stored JSON read in total).
+Back read another 2.6 MB. Two lookups repeated per history item:
+`watchProgressRepository.getRecent` resolved the selected tracking source
+(several settings stores) for every item, and the Simkl service read the
+anime id preference for every entry, re-parsed its snapshot and rebuilt the
+watched projection on each call, and `findEntry` rebuilt every entry's id
+aliases per lookup.
+
+With the source resolved once per call, the Simkl snapshot parsed once per
+stored text, the projection cached per snapshot (callers get copies) and an
+alias index per entries array, the same movie opened in 297 and 227 ms (single
+task 278 and 210 ms), and a series in 680 and 342 ms (the first open after a
+launch is the slower one). Per open, settings reads fell to 85 and
+`activeProfileId` reads to about 430. Back's longest task fell from 666 ms to
+about 210–250 ms.
+
+Going back also re-hydrated every poster: 800 ms after leaving Home, all
+artwork was handed back and the rescale workers were torn down, so a return
+fetched, decoded and rescaled the visible posters again. Home now keeps its
+artwork for 30 s after leaving, and starting playback releases it 800 ms after
+the player route opens. In two open-and-back rounds all 14 posters on screen
+were still painted 150 ms after Back.
+
+Still open: about 100 `layoutPreferences` reads per details open (a clone of a
+7 KB value each), and the first open after a launch still takes about 0.7 s.

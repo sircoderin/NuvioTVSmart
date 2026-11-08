@@ -49,6 +49,8 @@ posing as the TV's Chromium 87, with CPU throttling and recorded network.
                        its top self-time functions
   --eval=EXPR          evaluate EXPR in the page at the end of each launch and print it
   --home-perf          enable the app's Home render log and report render count/time
+  --early-keys         start the D-pad sequence as soon as Home is focusable instead of
+                       after it settles (the first seconds a viewer experiences)
   --no-snapshot        delete the saved Home boot snapshot before each launch (A/B
                        against the same build)
   --screenshot-at=MS,MS  save screenshots at these wall times after navigation starts
@@ -76,6 +78,7 @@ const settings = {
   screenshot: flag("screenshot"),
   noSnapshot: flag("no-snapshot"),
   homePerf: flag("home-perf"),
+  earlyKeys: flag("early-keys"),
   evaluate: option("eval", ""),
   screenshotAt: option("screenshot-at", "").split(",").filter(Boolean).map(Number)
 };
@@ -421,7 +424,7 @@ async function handleExternalRequest(cdp, sessionId, params, stats) {
       stats.recorded += 1;
       stats.missingUrls.add(new URL(request.url).host);
       await fulfill(cdp, sessionId, requestId, response.status, contentType, body);
-    } catch (error) {
+    } catch (_error) {
       stats.failed += 1;
       await cdp
         .send("Fetch.failRequest", { requestId, errorReason: "Failed" }, sessionId)
@@ -502,8 +505,9 @@ const PAGE_PROBE = String.raw`(() => {
     if (probe.marks.homeInteractive && probe.marks.firstPoster && !snapshot) clearInterval(timer);
   }, 50);
   window.addEventListener("keydown", (event) => {
-    const start = performance.now();
-    const sample = { key: event.key, nextFrameMs: null, settledMs: null };
+    // event.timeStamp includes the time the key waited behind other work.
+    const start = event.timeStamp > 0 ? event.timeStamp : performance.now();
+    const sample = { key: event.key, nextFrameMs: null, settledMs: null, queuedMs: performance.now() - start };
     probe.keys.push(sample);
     requestAnimationFrame(() => {
       sample.nextFrameMs = performance.now() - start;
@@ -649,6 +653,7 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
       ).catch(() => null);
       if (!snapshot) continue;
       marks = snapshot.marks;
+      if (settings.earlyKeys && marks.homeInteractive) break;
       if (
         marks.homeInteractive &&
         snapshot.now - Math.max(marks.homeInteractive, snapshot.lastLongTaskEnd) >= SETTLE_QUIET_MS
@@ -735,6 +740,14 @@ async function launchOnce({ chromePath, userDataDir, appUrl, state, measureKeys,
         nextFrameMax: quantile(nextFrame, 1),
         settledMedian: quantile(settledKey, 0.5),
         settledP95: quantile(settledKey, 0.95),
+        queuedMax: quantile(
+          navigation.keys.map((sample) => sample.queuedMs),
+          1
+        ),
+        worstKeys: [...navigation.keys]
+          .sort((a, b) => (b.settledMs || 0) - (a.settledMs || 0))
+          .slice(0, 5)
+          .map((sample) => Math.round(sample.settledMs)),
         longTaskTotal: navigation.longTaskTotal,
         longTaskMax: navigation.longTaskMax,
         homeElements: navigation.homeElements
@@ -865,6 +878,8 @@ function summarize(runs) {
     keyNextFrameMedianMs: round(medianOf(nav, (r) => r.navigation.nextFrameMedian)),
     keyNextFrameP95Ms: round(medianOf(nav, (r) => r.navigation.nextFrameP95)),
     keySettledP95Ms: round(medianOf(nav, (r) => r.navigation.settledP95)),
+    keyNextFrameMaxMs: round(medianOf(nav, (r) => r.navigation.nextFrameMax)),
+    keyQueuedMaxMs: round(medianOf(nav, (r) => r.navigation.queuedMax)),
     navLongTaskTotalMs: round(medianOf(nav, (r) => r.navigation.longTaskTotal)),
     navLongTaskMaxMs: round(medianOf(nav, (r) => r.navigation.longTaskMax))
   };

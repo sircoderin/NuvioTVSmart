@@ -10,8 +10,9 @@ merge and `8bd312df` is the last 1.2.4 fork commit. Upstream removed the Auto/Re
 keeps only the automatic constrained policy. Upstream's stream picker
 re-checked `loadToken` before opening the player; the fork advances that token
 on selection to cancel picker work, so the guard uses `playResolveToken`.
-Performance has not been remeasured on this merge; historical results below
-are not measurements of it. Experimental issue candidates are excluded.
+Early Home navigation was measured on this merge (RESULTS.md, "Upstream 1.4.0
+merge on the TV"); the other historical results predate it. Experimental issue
+candidates are excluded.
 
 The intended Git layout is `origin` = `sircoderin/NuvioTVSmart`, `upstream` = `NuvioMedia/NuvioTVSmart`, and `webos-performance` = the custom build branch. Keep `main` aligned with upstream. Inspect `git status`, remotes, and the branch before starting; retain unrelated local edits.
 

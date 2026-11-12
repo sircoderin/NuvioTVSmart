@@ -357,3 +357,26 @@ Keys pressed while catalogs are still arriving queue behind catalog parsing,
 GC and rendering, so they settle 1–2.8 s late. That saturation, not single
 long tasks, is what remains. Moving catalog fetch, parse and trimming into a
 worker would take the JSON parse and most of its garbage off the main thread.
+
+## Upstream 1.4.0 merge on the TV (November 12, 2026)
+
+`npm run perf:tv -- --early-nav`, two runs per build, from the first catalog
+row with 55 catalogs. "Before" is the 1.3.8 fork build installed on November
+8; "after" is the 1.4.0 merge (plus the stream resume fix), measured after
+Home had settled once at the top so the boot snapshot and the new catalog
+snapshot were saved. Long tasks here cover the whole run, not only the time
+after Home is interactive as in the traced runs above.
+
+| Run       | Interactive | Next frame p50 / p95 | Settled p95 | Worst key | Long tasks total / max | Last row on screen |
+| --------- | ----------- | -------------------- | ----------- | --------- | ---------------------- | ------------------ |
+| before r1 | 6.6 s       | 110 / 948 ms         | 8.14 s      | 8.83 s    | 13.2 / 5.85 s          | 14.1 s             |
+| before r2 | 4.9 s       | 97 / 351 ms          | 1.81 s      | 7.48 s    | 7.3 / 1.72 s           | 10.2 s             |
+| after r1  | 3.8 s       | 108 / 598 ms         | 3.05 s      | 3.53 s    | 4.6 / 0.47 s           | 11.9 s             |
+| after r2  | 3.3 s       | 68 / 346 ms          | 1.12 s      | 1.50 s    | 2.1 / 0.32 s           | 7.1 s              |
+
+In before r1 a 5.9 s task held 13 of the 22 keys on the first row. Each
+merged run had one Home render while keys were pressed (71 and 81 ms). The
+two builds vary more between runs than the earlier traced runs did, so two
+runs show no regression from the merge rather than a measured speedup.
+`--css-smoke` confirmed the renamed motion stylesheet still reveals all seven
+animation-dependent elements.

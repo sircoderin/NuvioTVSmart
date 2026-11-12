@@ -404,3 +404,27 @@ every non-image request. The Simkl check was skipped in every run (its
 - Upstream's IndexedDB catalog cache never wins its 500 ms race here: opening
   the database took 1.9 s and the read 1.2 s, so Home always paints from the
   network. Its writes still run (2.6 s for the put after the first rows).
+
+## Catalog cache and catalog parsing on the TV (November 12, 2026)
+
+Same cold-reload recording as the previous section. Each A/B pair ran on one
+installed build, with the variant switched through the inspector before the
+reload, and the pairs interleaved.
+
+- **Catalog cache skipped on constrained TVs (kept).** Making the IndexedDB
+  catalog cache unopenable before launch (3 pairs): catalogs finished at
+  8.1-8.2 s instead of 10.1-12.2 s, long tasks totalled 3.2-3.9 s instead of
+  4.4-5.7 s, and Home was interactive at 4.1-4.4 s instead of 4.3-6.7 s.
+  Four reloads of the committed build: interactive 4.0-5.4 s, catalogs done
+  6.9-9.8 s, long tasks 3.0-4.4 s (the first reload after the install, without
+  a code cache, took 8.1 / 13.6 / 9.3 s). The direction held but by less than
+  in the A/B.
+- **Catalog parsing in a Web Worker (not kept).** Startup fetches 54 catalog
+  pages, 15.5 MB of JSON, and parsing them on the main thread took 1.0-1.3 s.
+  A worker that fetched, parsed and returned only the card fields removed that
+  parsing but was not faster (3 pairs, worker vs main thread): long tasks
+  4.5-5.0 s vs 3.1-4.8 s, catalogs done 8.4-9.0 s vs 7.6-10.3 s, interactive
+  4.6-5.2 s vs 4.1-5.9 s. The worker had more long-task time in every pair.
+  A likely cause is that a fifth busy thread competes with the main, raster
+  and artwork threads for the four A55 cores; this was not traced. The
+  change is kept outside the repository, under `.cache/tv-performance/`.

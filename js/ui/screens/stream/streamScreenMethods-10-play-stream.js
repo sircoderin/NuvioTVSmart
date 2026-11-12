@@ -2,6 +2,10 @@ import { activeStreamLinkProfile } from "../../../data/local/streamLinkCacheStor
 /* eslint-disable no-unused-vars */
 import * as internals from "./streamScreen.js";
 
+// Waiting longer for the tracker than this delays playback more than an older
+// resume point costs.
+const LATEST_RESUME_LOOKUP_MS = 3000;
+
 export function createStreamScreenMethods10() {
   const {
     Router,
@@ -48,19 +52,34 @@ export function createStreamScreenMethods10() {
       let resumePositionMs = hasRouteResume ? routeResumeProgress.positionMs : 0;
       let resumeProgressPercent = hasRouteResume ? routeResumeProgress.progressPercent : null;
       let resumeDurationMs = hasRouteResume ? routeResumeProgress.durationMs : 0;
-      if (!startFromBeginning && resumePositionMs <= 0 && !(Number(resumeProgressPercent) > 0)) {
-        const resumeTarget =
-          itemType === "series" || itemType === "tv"
-            ? {
-                videoId: this.params?.videoId || null,
-                season: this.params?.season,
-                episode: this.params?.episode
-              }
-            : {};
-        const resumeProgress = await watchProgressRepository.getResumeByContentId(this.params?.itemId, resumeTarget).catch((error) => {
+      const resumeTarget =
+        itemType === "series" || itemType === "tv"
+          ? {
+              videoId: this.params?.videoId || null,
+              season: this.params?.season,
+              episode: this.params?.episode
+            }
+          : {};
+      const lookupResume = () =>
+        watchProgressRepository.getResumeByContentId(this.params?.itemId, resumeTarget).catch((error) => {
           console.warn("Stream resume lookup failed", error);
           return null;
         });
+      const routeResumeUpdatedAt = Number(this.params?.resumeUpdatedAt || 0) || 0;
+      if (hasRouteResume && routeResumeUpdatedAt > 0) {
+        // A Continue Watching card can be painted from the saved row before
+        // the tracker brings in progress made on another device.
+        const latest = await Promise.race([
+          lookupResume(),
+          new Promise((resolve) => setTimeout(() => resolve(null), LATEST_RESUME_LOOKUP_MS))
+        ]);
+        if (latest && Number(latest.updatedAt || 0) > routeResumeUpdatedAt && isWatchProgressInProgress(latest)) {
+          resumePositionMs = Number(latest.positionMs || 0) || 0;
+          resumeProgressPercent = latest.progressPercent ?? null;
+          resumeDurationMs = Number(latest.durationMs || 0) || resumeDurationMs;
+        }
+      } else if (!startFromBeginning && resumePositionMs <= 0 && !(Number(resumeProgressPercent) > 0)) {
+        const resumeProgress = await lookupResume();
         resumePositionMs = Number(resumeProgress?.positionMs || 0) || 0;
         resumeProgressPercent = resumeProgress?.progressPercent ?? resumeProgressPercent;
         resumeDurationMs = Number(resumeProgress?.durationMs || 0) || resumeDurationMs;

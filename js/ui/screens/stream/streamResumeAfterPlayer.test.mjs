@@ -89,3 +89,31 @@ test("a fresh open keeps the resume point it was given", async (t) => {
   const navigated = await playFromPicker(t, { params: { ...pickerParams } });
   assert.equal(navigated.params.resumePositionMs, 70 * MINUTE_MS);
 });
+
+// A Continue Watching card painted from the saved row, before the tracker
+// brought in progress made on another device.
+test("a card older than the saved progress resumes from the saved progress", async (t) => {
+  const watchedOnPhoneAt = Date.now();
+  await watchProgressRepository.saveProgress(
+    {
+      contentId: "tt0926084",
+      contentType: "movie",
+      imdbId: "tt0926084",
+      positionMs: 100 * MINUTE_MS,
+      durationMs: DURATION_MS,
+      updatedAt: watchedOnPhoneAt
+    },
+    { syncRemote: false }
+  );
+  const navigated = await playFromPicker(t, {
+    params: { ...pickerParams, resumeUpdatedAt: watchedOnPhoneAt - 60 * MINUTE_MS }
+  });
+  assert.equal(navigated.params.resumePositionMs, 100 * MINUTE_MS);
+});
+
+test("a card newer than the saved progress keeps its own resume point", async (t) => {
+  const navigated = await playFromPicker(t, {
+    params: { ...pickerParams, resumeUpdatedAt: Date.now() + MINUTE_MS }
+  });
+  assert.equal(navigated.params.resumePositionMs, 70 * MINUTE_MS);
+});

@@ -224,6 +224,7 @@ export function continueWatchingStreamParams(item, options = {}) {
     resumePositionMs: options.startOver ? 0 : Number(normalized.positionMs || 0) || 0,
     resumeProgressPercent: options.startOver ? null : (normalized.progressPercent ?? null),
     resumeDurationMs: options.startOver ? 0 : Number(normalized.durationMs || 0) || 0,
+    resumeUpdatedAt: options.startOver ? 0 : Number(normalized.updatedAt || 0) || 0,
     resumeStreamIdentity: options.startOver ? null : normalized.streamIdentity || null,
     startFromBeginning: Boolean(options.startOver),
     manualSelection: Boolean(options.manualSelection)

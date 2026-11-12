@@ -3,7 +3,8 @@ import { CUSTOM_POSTER_SCREENS } from "./customPosterScreens.js";
 import {
   normalizeTmdbBackdropUrl,
   normalizeTmdbPosterUrl,
-  preferredTmdbCardPosterSize
+  preferredTmdbCardPosterSize,
+  prefersSmallTvCardPosters
 } from "../tmdb/tmdbImageUrl.js";
 import { Platform } from "../../platform/index.js";
 export { CUSTOM_POSTER_SCREENS } from "./customPosterScreens.js";
@@ -132,8 +133,21 @@ export function resolveCustomPoster(pattern, ids, type, shape = "poster") {
 // at 342 px). Services that resize on request are asked for the card's width,
 // the same width the TV takes from TMDB. Other hosts stay untouched.
 const WIDTH_PARAM_BY_HOST = { "easyposters.realbestia.com": "w" };
+// TheTVDB keeps a 340x500 thumbnail of every 680x1000 series or movie poster
+// next to it, named with a _t suffix. Older /banners/posters/ files have no
+// smaller copy and stay as they are.
+const TVDB_POSTER_PATTERN =
+  /^(https?:\/\/artworks\.thetvdb\.com\/banners\/(?:v4\/)?[a-z]+\/\d+\/posters\/[^/?#]+?)(\.(?:jpe?g|png))$/i;
+function tvdbThumbnail(url) {
+  const match = TVDB_POSTER_PATTERN.exec(url);
+  return match && !match[1].endsWith("_t") ? `${match[1]}_t${match[2]}` : url;
+}
 function tvCardSizedPoster(url) {
   if (!url || !(Platform.isTizen() || Platform.isWebOS())) return url;
+  if (prefersSmallTvCardPosters()) {
+    const thumbnail = tvdbThumbnail(url);
+    if (thumbnail !== url) return thumbnail;
+  }
   const param = WIDTH_PARAM_BY_HOST[/^https?:\/\/([^/?#]+)/i.exec(url)?.[1]?.toLowerCase()];
   if (!param || new RegExp(`[?&]${param}=`).test(url)) return url;
   const width = preferredTmdbCardPosterSize().slice(1);
@@ -148,9 +162,13 @@ export function customPosterForItem(
   if (!item) return item;
   // Keep every screen on the same source sizes as Home. The helpers are
   // idempotent and leave artwork from any other host byte-for-byte unchanged.
+  const addonPoster = normalizeTmdbPosterUrl(item.poster);
+  const sizedPoster = tvCardSizedPoster(addonPoster);
   const normalizedItem = {
     ...item,
-    poster: tvCardSizedPoster(normalizeTmdbPosterUrl(item.poster)),
+    // A smaller copy that fails to load falls back to the addon's own poster.
+    ...(sizedPoster !== addonPoster && !item.rawPosterUrl ? { rawPosterUrl: addonPoster } : {}),
+    poster: sizedPoster,
     backdrop: normalizeTmdbBackdropUrl(item.backdrop),
     background: normalizeTmdbBackdropUrl(item.background),
     landscapePoster: normalizeTmdbBackdropUrl(item.landscapePoster),

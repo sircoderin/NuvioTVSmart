@@ -1,24 +1,32 @@
 import { Platform } from "../../platform/index.js";
-import { getTvArtworkPixelRatio } from "../../platform/tvRuntimePerformance.js";
+import {
+  getTvArtworkPixelRatio,
+  getTvRuntimePerformanceProfile
+} from "../../platform/tvRuntimePerformance.js";
+import { isModernTvProfile } from "../../platform/tvPerformancePolicy.js";
 
 const TMDB_IMAGE_HOST_PATTERN = /^(?:https?:)?\/\/image\.tmdb\.org\//i;
 
 // Match Android TV: Home and library poster cards use w500 sources.
 const TMDB_CARD_POSTER_SIZE = "w500";
-// Tizen 4/5.0 and webOS 5 and older lack OffscreenCanvas, so tvPosterRescaler
-// cannot downscale card posters off the main thread there and every poster
-// decodes at its source size. Those 1080p panels paint the widest poster card
-// (305 CSS px) at one device pixel per CSS pixel, which w342 still covers; a
-// 4K panel paints it at two and keeps w500 so it stays as sharp as Android TV.
+// tvPosterRescaler only runs on modern TVs that have OffscreenCanvas. Everywhere
+// else every poster decodes at its source size. A 1080p panel paints the widest
+// poster card (305 CSS px) at one device pixel per CSS pixel, which w342 still
+// covers; a 4K panel paints it at two and keeps w500 so it stays as sharp as
+// Android TV.
 const TMDB_LEGACY_TV_CARD_POSTER_SIZE = "w342";
 
 let cachedCardPosterSize = null;
 
+function tvRescalesCardPosters() {
+  return (
+    typeof OffscreenCanvas !== "undefined" && isModernTvProfile(getTvRuntimePerformanceProfile())
+  );
+}
+
 function tvCanUseSmallCardPosters() {
-  // A rescaler-less TV that paints at one device pixel per CSS pixel can take
-  // w342; a panel that paints larger keeps w500 so it stays sharp.
   const isTv = Boolean(Platform.isTizen?.() || Platform.isWebOS?.());
-  return isTv && typeof OffscreenCanvas === "undefined" && getTvArtworkPixelRatio() === 1;
+  return isTv && !tvRescalesCardPosters() && getTvArtworkPixelRatio() === 1;
 }
 
 /**
@@ -55,9 +63,16 @@ export function normalizeTmdbPosterUrl(value) {
     return normalized;
   }
   const size = preferredTmdbCardPosterSize();
-  // Addon catalogs (TMDB addon, AIOMetadata, ...) send w500 posters directly;
-  // only a TV without the rescaler trades those down as well.
+  // Addon catalogs (TMDB addon, AIOMetadata, ...) send w500 or
+  // w600_and_h900_bestv2 posters directly; only a TV that decodes them at
+  // source size trades those down as well.
   const oversized =
-    size === TMDB_CARD_POSTER_SIZE ? /(\/t\/p\/)original\//i : /(\/t\/p\/)(?:original|w500)\//i;
+    size === TMDB_CARD_POSTER_SIZE
+      ? /(\/t\/p\/)original\//i
+      : /(\/t\/p\/)(?:original|w500|w780|w\d+_and_h\d+_bestv2)\//i;
   return normalized.replace(oversized, `$1${size}/`);
+}
+
+export function prefersSmallTvCardPosters() {
+  return preferredTmdbCardPosterSize() === TMDB_LEGACY_TV_CARD_POSTER_SIZE;
 }

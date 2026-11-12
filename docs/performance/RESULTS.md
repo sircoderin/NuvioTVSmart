@@ -498,3 +498,38 @@ refreshes pass their 15 min window as a maximum age to the in-memory catalog
 cache, which otherwise returned the pages fetched earlier in the session, and
 a constrained TV checks once a minute whether Home's catalogs need that
 refresh. Neither has been timed on the TV.
+
+## Where startup goes on the TV (November 12, 2026)
+
+Two cold reloads under Chrome tracing with 1 ms CPU samples, attributed to
+source through a source map of the identical bundle:
+
+| Step                                       | Trace 1     | Trace 2     |
+| ------------------------------------------ | ----------- | ----------- |
+| Launch snapshot painted                    | 0.50 s      | 0.52 s      |
+| `app.bundle.js` read (3.8 MB, local file)  | 0.94-1.45 s | 0.94-1.62 s |
+| Its compile                                | 0.46 s      | 0.63 s      |
+| Its evaluation, compile included           | 1.25 s      | 1.50 s      |
+| `res/i18n/en.json` read                    | 2.85-3.13 s | 3.27-3.81 s |
+| Next long task (Home mount and first data) | 1.28 s      | 2.20 s      |
+| Home's `loadData` running                  | 3.85 s      | 4.74 s      |
+| First catalog request                      | 5.1 s       | 7.4 s       |
+
+- The packaged `index.html` requests the bundle only after the launch
+  snapshot has painted, so the 0.5-0.7 s file read does not overlap the
+  snapshot work. The file is not streamed or code-cached: V8 reports
+  "not http/https protocol" for it.
+- Of the evaluation block, about 0.6 s is engine work (mostly the compile)
+  and about 0.4 s is top-level module code, which the profile cannot split by
+  module because the bundle is one function.
+- In the Home mount task of trace 1: `buildSyncSensitiveHomeSignature`
+  0.20 s (exporting every synced settings feature to compare them), Simkl
+  watched items 0.21 s (mapping each stored history entry), Home's first
+  render 0.12 s, Continue Watching enrichment 0.05 s.
+- core-js 3.50 includes `JSON.rawJSON` in its stable set, so on Chromium 87
+  it replaces `JSON.stringify` with a wrapper that calls back into JavaScript
+  for every value. Time inside it was 42 ms before Home loaded and 282 ms in
+  the first 10 s. `JSON.parse` without a reviver still goes to the native
+  parser. The app does not use `JSON.rawJSON` or `JSON.isRawJSON`.
+- The device registration request (`register_current_device`, 1.4 s server
+  time) is not awaited; Home's requests start when the mount task ends.

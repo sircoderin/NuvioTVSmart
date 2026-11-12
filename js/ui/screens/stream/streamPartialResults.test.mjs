@@ -20,6 +20,7 @@ test("the first source can play while a second source is still pending", async (
     getStreams: streamRepository.getStreamsFromAllAddons,
     snapshot: StreamBadgeSettingsStore.snapshot,
     navigate: Router.navigate,
+    getCurrent: Router.getCurrent,
     pause: streamRepository.setLocalPluginSearchPaused
   };
   let finish;
@@ -36,6 +37,7 @@ test("the first source can play while a second source is still pending", async (
   Router.navigate = (route, params) => {
     navigated = { route, params };
   };
+  Router.getCurrent = () => "stream";
   streamRepository.setLocalPluginSearchPaused = () => {};
   const renders = [];
   const screen = {
@@ -105,6 +107,7 @@ test("the first source can play while a second source is still pending", async (
     streamRepository.getStreamsFromAllAddons = originals.getStreams;
     StreamBadgeSettingsStore.snapshot = originals.snapshot;
     Router.navigate = originals.navigate;
+    Router.getCurrent = originals.getCurrent;
     streamRepository.setLocalPluginSearchPaused = originals.pause;
   }
 });

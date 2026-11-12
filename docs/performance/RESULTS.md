@@ -556,7 +556,8 @@ The press timings stretch because the stalls also delay the key events.
 - Home's posters are not shrunk: 600 x 900 (TMDB `w600_and_h900_bestv2`) and
   680 x 1000 (TheTVDB full-size) images are shown at 221 x 339. The 57 loaded
   images decode to 33.9 megapixels (about 135 MB) for 4.9 megapixels on
-  screen. The rescaler only shrinks images over 1280 px.
+  screen. The rescaler does not run on constrained TVs, and the small-poster
+  rule skipped this TV because it has `OffscreenCanvas`.
 - Each Down handler spent 0.3-0.5 s in the profiled run (0.28-0.68 s per
   long key task in run 2), mostly the style update that `focus()` forces. The
   viewport scroll handler's frame callback took 1.3 s once: mounting rows for
@@ -564,3 +565,38 @@ The press timings stretch because the stalls also delay the key events.
 - About 7 s after the last press, one 1.9 s task re-read watch progress,
   watched items and installed addons (hero enrichment and watched-state work);
   it would stall a scroll that was still going.
+
+## Card-sized posters on constrained TVs (November 12, 2026)
+
+The small-poster rule (`preferredTmdbCardPosterSize`) assumed that a TV with
+`OffscreenCanvas` has the rescaler shrink its posters. The rescaler only runs
+on modern TV profiles, so this constrained webOS 7.6 set (OffscreenCanvas
+present, artwork pixel ratio 1: screen and viewport both 1920 wide, reported
+`devicePixelRatio` 2) kept full-size posters. Constrained 1x TVs now take TMDB
+`w342`, including the addons' `w600_and_h900_bestv2`, and TheTVDB's `_t`
+thumbnails. Older `/banners/posters/` files return the same 680 x 1000 image
+under `_t` and are left alone. A thumbnail that fails to load falls back to the
+addon's poster through `data-original-poster`.
+
+Same test as above (settled Home, first catalog row, 15 Down presses 250 ms
+apart, tracing on, no CPU samples), two runs:
+
+| Run    | Time for 15 presses | Long tasks  | Longest   | Presses that did not move focus |
+| ------ | ------------------- | ----------- | --------- | ------------------------------- |
+| Before | 8.9-12.5 s          | 12.4-15.1 s | 2.6-2.9 s | 2-3                             |
+| 1      | 4.8 s               | 1.8 s       | 0.25 s    | 0                               |
+| 2      | 5.1 s               | 1.7 s       | 0.30 s    | 1                               |
+
+Sending 15 presses 250 ms apart over the inspector takes about 4.5 s, so the
+presses are no longer held back. Median key-to-next-frame was 23-25 ms (worst
+67 and 162 ms).
+
+- Measured the same way on all four traces (everything after the scroll mark),
+  `CompositeLayers` fell from 4.7-6.6 s to 1.1 s and image decoding for GPU
+  upload from 8.5-8.6 s to 2.4-2.8 s.
+- After run 1, 54 posters had loaded: 342 x 513 from TMDB and 340 x 500 from
+  TheTVDB, 9.3 megapixels in total (57 posters at 33.9 megapixels before).
+  None failed and none fell back.
+- What remains is handler work: Down handlers of 160-300 ms (the style update
+  `focus()` forces, plus row mounting) and one 220 ms scroll frame. Run 2's
+  press that did not move focus arrived while a 300 ms handler ran.

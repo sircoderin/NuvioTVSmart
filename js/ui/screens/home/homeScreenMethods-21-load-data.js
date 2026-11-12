@@ -1,6 +1,6 @@
 import * as internals from "./homeScreenContext.js";
 import { startHomeContinueWatchingLoad } from "./homeContinueWatchingLoad.js";
-import { showHomeLoadingStatus, hideHomeLoadingStatus } from "./homeLoadingStatus.js";
+import { updateHomeLoadingStatus } from "./homeLoadingStatus.js";
 import { HomeCatalogSnapshotStore, buildHomeCatalogSnapshotKey } from "../../../data/local/homeCatalogSnapshotStore.js";
 
 const SNAPSHOT_READ_TIMEOUT_MS = 500;
@@ -128,7 +128,11 @@ export function createHomeScreenMethods21() {
       // slow addon or Trakt call never blocks catalog rows. The section paints
       // from the cached snapshot when available, or raw progress before enrichment.
 
-      startHomeContinueWatchingLoad.call(this, {
+      if (!background) {
+        this.homeContinueWatchingStatusToken = token;
+        updateHomeLoadingStatus({ continueWatching: true });
+      }
+      const continueWatchingLoad = startHomeContinueWatchingLoad.call(this, {
         token,
         watchedItemsPromise,
         progressAllPromise,
@@ -145,6 +149,15 @@ export function createHomeScreenMethods21() {
         suppressContinueWatchingLoading,
         hasExistingContinueWatchingDisplay
       });
+      if (!background) {
+        // Held until Next Up and artwork are in: the row changes until then.
+        void Promise.resolve(continueWatchingLoad).finally(() => {
+          if (this.homeContinueWatchingStatusToken === token) {
+            this.homeContinueWatchingStatusToken = null;
+            updateHomeLoadingStatus({ continueWatching: false });
+          }
+        });
+      }
 
       const addons = refreshManifests
         ? await addonRepository.getInstalledAddons({
@@ -498,11 +511,12 @@ export function createHomeScreenMethods21() {
       const keys = new Set(descriptors.map((catalog) => catalog.homeCatalogKey));
       const loaded = new Set(loadedRows.map((row) => row?.homeCatalogKey).filter((key) => keys.has(key)));
       if (loaded.size >= keys.size) {
-        this.finishHomeLoadingStatus();
+        this.homeLoadingStatus = null;
+        updateHomeLoadingStatus({ catalogs: null });
         return;
       }
       this.homeLoadingStatus = { token, keys, loaded };
-      showHomeLoadingStatus({ loaded: loaded.size, total: keys.size });
+      updateHomeLoadingStatus({ catalogs: { loaded: loaded.size, total: keys.size } });
     },
     noteHomeLoadingStatusRow(token, row) {
       const status = this.homeLoadingStatus;
@@ -510,14 +524,20 @@ export function createHomeScreenMethods21() {
         return;
       }
       status.loaded.add(row.homeCatalogKey);
-      showHomeLoadingStatus({ loaded: status.loaded.size, total: status.keys.size });
+      updateHomeLoadingStatus({ catalogs: { loaded: status.loaded.size, total: status.keys.size } });
     },
+    // Without a token: Home is being left, and nothing it loads is shown.
     finishHomeLoadingStatus(token = null) {
       if (token !== null && this.homeLoadingStatus?.token !== token) {
         return;
       }
       this.homeLoadingStatus = null;
-      hideHomeLoadingStatus();
+      if (token === null) {
+        this.homeContinueWatchingStatusToken = null;
+        updateHomeLoadingStatus({ catalogs: null, continueWatching: false });
+        return;
+      }
+      updateHomeLoadingStatus({ catalogs: null });
     },
     captureHomeHeroState() {
       return {

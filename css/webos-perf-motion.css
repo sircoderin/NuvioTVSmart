@@ -72,12 +72,16 @@
 }
 
 /* First-load status: its own layer and containment keep text updates from
-   touching the Home layer. Static on purpose; no animation while Home paints. */
+   touching the Home layer. */
 .home-loading-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   position: fixed;
   top: 28px;
   right: 48px;
-  z-index: 90;
+  /* Above the launch snapshot, which paints the same pill. */
+  z-index: 2147483001;
   padding: 8px 18px;
   border-radius: 999px;
   background: rgb(var(--bg-elevated-rgb) / 0.92);
@@ -89,4 +93,26 @@
   pointer-events: none;
   contain: layout paint style;
   will-change: transform;
+}
+
+/* The one animation kept on constrained TVs: a transform on its own layer,
+   which the compositor turns without the main thread, so it keeps moving
+   while Home is busy. */
+.home-loading-status-spinner,
+.performance-constrained .home-loading-status-spinner {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 3px solid transparent;
+  border-top-color: currentColor;
+  border-right-color: currentColor;
+  border-radius: 50%;
+  will-change: transform;
+  animation: home-loading-status-spin 0.9s linear infinite !important;
+}
+
+@keyframes home-loading-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

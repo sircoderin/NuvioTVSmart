@@ -7,8 +7,14 @@ export const HOME_BOOT_SNAPSHOT_TIMEOUT_MS = 30000;
 const WEBOS_RESUME_ROUTE_KEY = "webos_last_resume_route";
 const WEBOS_RESUME_ROUTE_TTL_MS = 20 * 60 * 1000;
 
+// Shared with homeLoadingStatus.js, which adopts the pill painted here.
+export const HOME_BOOT_LOADING_STATUS_ID = "homeLoadingStatus";
+export const HOME_BOOT_LOADING_STATUS_TEXT = "Starting up";
+
 export function homeBootSnapshotPaintConfig(buildId) {
   return {
+    loadingStatusId: HOME_BOOT_LOADING_STATUS_ID,
+    loadingStatusText: HOME_BOOT_LOADING_STATUS_TEXT,
     buildId: String(buildId || ""),
     storageKey: HOME_BOOT_SNAPSHOT_STORAGE_KEY,
     elementId: HOME_BOOT_SNAPSHOT_ELEMENT_ID,
@@ -38,6 +44,9 @@ export function paintHomeBootSnapshot(win, config) {
   var system;
   var root;
   var home;
+  var status = null;
+  var spinner;
+  var label;
   try {
     storage = win.localStorage;
     snapshot = JSON.parse(storage.getItem(config.storageKey) || "null");
@@ -88,10 +97,31 @@ export function paintHomeBootSnapshot(win, config) {
     home.innerHTML = snapshot.html;
     root.appendChild(home);
     doc.body.appendChild(root);
+    // The picture looks ready before the app takes keys; say it is not.
+    if (config.loadingStatusId) {
+      status = doc.createElement("div");
+      status.id = config.loadingStatusId;
+      status.className = "home-loading-status";
+      status.setAttribute("role", "status");
+      status.setAttribute("aria-live", "off");
+      spinner = doc.createElement("span");
+      spinner.className = "home-loading-status-spinner";
+      spinner.setAttribute("aria-hidden", "true");
+      label = doc.createElement("span");
+      label.className = "home-loading-status-text";
+      label.textContent = String(config.loadingStatusText || "");
+      status.appendChild(spinner);
+      status.appendChild(label);
+      doc.body.appendChild(status);
+    }
     win.__NUVIO_BOOT_SNAPSHOT__ = { shownAt: Date.now() };
     win.setTimeout(function removeStaleBootSnapshot() {
       if (root.parentNode) {
         root.parentNode.removeChild(root);
+      }
+      // The app adopts the pill; one it never took over must not stay up.
+      if (status && status.parentNode && !status.getAttribute("data-adopted")) {
+        status.parentNode.removeChild(status);
       }
     }, config.timeoutMs);
     return true;

@@ -19,6 +19,9 @@ function element(tagName) {
     setAttribute(name, value) {
       this.attributes[name] = String(value);
     },
+    getAttribute(name) {
+      return name in this.attributes ? this.attributes[name] : null;
+    },
     appendChild(child) {
       child.parentNode = this;
       this.children.push(child);
@@ -135,4 +138,20 @@ test("runs as an inline ES5 script without module scope", () => {
     Number
   });
   assert.equal(vm.runInContext(`(${source})(win, config)`, context), true);
+});
+
+test("paints the loading pill above the snapshot and removes it only if never adopted", () => {
+  const win = createWindow(state());
+  assert.equal(paintHomeBootSnapshot(win, homeBootSnapshotPaintConfig("build-a")), true);
+  const pill = win.body.children.find((child) => child.id === "homeLoadingStatus");
+  assert.ok(pill, "the pill is painted with the snapshot");
+  assert.equal(pill.children[1].textContent, "Starting up");
+  pill.setAttribute("data-adopted", "1");
+  win.timers[0].callback();
+  assert.ok(win.body.children.includes(pill), "an adopted pill stays for the app to manage");
+
+  const stale = createWindow(state());
+  paintHomeBootSnapshot(stale, homeBootSnapshotPaintConfig("build-a"));
+  stale.timers[0].callback();
+  assert.equal(stale.body.children.length, 0);
 });

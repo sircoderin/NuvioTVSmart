@@ -1,4 +1,5 @@
 import { releaseHomeBootSnapshot } from "../screens/home/homeBootSnapshot.js";
+import { resetHomeLoadingStatus } from "../screens/home/homeLoadingStatus.js";
 import { focusWithoutScroll } from "./focusWithoutScroll.js";
 
 export const ScreenUtils = {
@@ -41,6 +42,7 @@ export const ScreenUtils = {
     // The launch opened another screen than Home; drop the Home snapshot.
     if (container.id !== "home") {
       releaseHomeBootSnapshot();
+      resetHomeLoadingStatus();
     }
     if (container.style.display !== "block") {
       container.style.display = "block";

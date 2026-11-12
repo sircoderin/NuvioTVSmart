@@ -27,6 +27,7 @@ import {
   releaseHomeBootSnapshot,
   setHomeBootSnapshotEntry
 } from "./ui/screens/home/homeBootSnapshot.js";
+import { resetHomeLoadingStatus } from "./ui/screens/home/homeLoadingStatus.js";
 import { renderAddonRemotePage } from "./bootstrap/renderAddonRemotePage.js";
 import { preloadStreamBadgeImages } from "./ui/screens/stream/streamScreen.js";
 import { whenInputQuiet } from "./core/util/whenInputQuiet.js";
@@ -224,6 +225,7 @@ function formatErrorMessage(error) {
 
 function renderFatalError(error) {
   releaseHomeBootSnapshot();
+  resetHomeLoadingStatus();
   const message = formatErrorMessage(error);
   const guard = globalThis.NuvioBootGuard;
   if (guard && typeof guard.fail === "function" && guard.isActive?.()) {

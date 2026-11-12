@@ -17,6 +17,8 @@ function catalogItemIdentity(item = {}) {
 // stopped pressing keys for this long.
 const GENTLE_REFRESH_KEY_QUIET_MS = 2500;
 const GENTLE_REFRESH_POLL_MS = 500;
+// How often a TV staying on Home checks whether its catalogs need a refresh.
+const HOME_CATALOG_REFRESH_CHECK_MS = 60 * 1000;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -335,10 +337,23 @@ export function createHomeScreenMethods04() {
       const rows = [];
       for (const descriptor of descriptors) {
         if (!(await this.waitForQuietHome(token))) return rows;
-        const [row] = await this.fetchCatalogRows([descriptor]);
+        const [row] = await this.fetchCatalogRows([descriptor], { maxAgeMs: HOME_CATALOG_REFRESH_TTL_MS });
         if (row) rows.push(row);
       }
       return rows;
+    },
+    /**
+     * Keeps a constrained TV's catalogs refreshed while the viewer stays on
+     * Home, where no route change would trigger the refresh.
+     */
+    startHomeCatalogRefreshChecks() {
+      if (this.homeCatalogRefreshCheckTimer) return;
+      this.homeCatalogRefreshCheckTimer = setInterval(() => {
+        if (Router.getCurrent() !== "home" || globalThis.document?.visibilityState === "hidden") return;
+        void this.refreshHomeCatalogsIfStale({ reason: "home-idle" }).catch((error) => {
+          console.warn("Home periodic catalog refresh failed", error);
+        });
+      }, HOME_CATALOG_REFRESH_CHECK_MS);
     },
     async refreshHomeCatalogsIfStale({ reason = "catalogs-stale" } = {}) {
       if (
@@ -436,6 +451,11 @@ export function createHomeScreenMethods04() {
         if (!descriptors.length) {
           return false;
         }
+        // Rows on screen first.
+        const rowIndex = new Map((this.rows || []).map((row, index) => [String(row?.homeCatalogKey || ""), index]));
+        const indexOf = (descriptor) =>
+          rowIndex.get(String(buildCatalogOrderKey(descriptor.addonId, descriptor.type, descriptor.catalogId))) ?? Infinity;
+        descriptors.sort((left, right) => indexOf(left) - indexOf(right));
         // A constrained TV fetches and parses one catalog at a time while the
         // viewer is idle, instead of all of them in one burst. Its refresh time
         // is recorded once it completes: an interrupted refresh runs again on
@@ -447,7 +467,8 @@ export function createHomeScreenMethods04() {
         const refreshedRows = gentle
           ? await this.fetchCatalogRowsGently(descriptors, token)
           : await this.fetchCatalogRows(descriptors, {
-              concurrency: this.getDeferredCatalogBatchSize()
+              concurrency: this.getDeferredCatalogBatchSize(),
+              maxAgeMs: HOME_CATALOG_REFRESH_TTL_MS
             });
         if (gentle && !(await this.waitForQuietHome(token))) {
           return false;

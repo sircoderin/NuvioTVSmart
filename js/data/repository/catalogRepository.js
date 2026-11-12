@@ -15,20 +15,20 @@ class CatalogRepository {
     this.cacheGeneration = 0;
   }
 
-  readCachedCatalog(cacheKey) {
+  readCachedCatalog(cacheKey, maxAgeMs = Infinity) {
     const cached = this.catalogCache.get(cacheKey);
-    if (cached === undefined) {
+    if (cached === undefined || Date.now() - cached.fetchedAt > maxAgeMs) {
       return undefined;
     }
     // Re-insert so Map iteration order doubles as least-recently-used order.
     this.catalogCache.delete(cacheKey);
     this.catalogCache.set(cacheKey, cached);
-    return cached;
+    return cached.row;
   }
 
   writeCachedCatalog(cacheKey, row) {
     this.catalogCache.delete(cacheKey);
-    this.catalogCache.set(cacheKey, row);
+    this.catalogCache.set(cacheKey, { row, fetchedAt: Date.now() });
     while (this.catalogCache.size > MAX_CACHED_CATALOG_PAGES) {
       const oldestKey = this.catalogCache.keys().next().value;
       this.catalogCache.delete(oldestKey);
@@ -46,7 +46,10 @@ class CatalogRepository {
     skipStep = 100,
     extraArgs = {},
     supportsSkip = false,
-    signal = null
+    signal = null,
+    // A refresh passes its freshness window, so pages fetched before it are
+    // requested again.
+    maxAgeMs = Infinity
   }) {
     if (isMediaServerBase(addonBaseUrl))
       return MediaServerRepository.catalog({
@@ -69,7 +72,7 @@ class CatalogRepository {
       supportsSkip
     });
 
-    const cached = this.readCachedCatalog(cacheKey);
+    const cached = this.readCachedCatalog(cacheKey, maxAgeMs);
     if (cached) {
       return {
         status: "success",

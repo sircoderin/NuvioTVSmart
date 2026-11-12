@@ -200,13 +200,13 @@ export function compactHomeCatalogRows(rows = []) {
     .filter(Boolean);
 }
 
-export function isHomeCatalogSnapshotFresh(record, now = Date.now()) {
+export function isHomeCatalogSnapshotFresh(record, now = Date.now(), maxAgeMs = SNAPSHOT_TTL_MS) {
   return Boolean(
     record &&
     Number(record.version || 0) === SNAPSHOT_VERSION &&
     typeof record.rowsJson === "string" &&
     Number(record.savedAt || 0) > 0 &&
-    now - Number(record.savedAt) <= SNAPSHOT_TTL_MS
+    now - Number(record.savedAt) <= maxAgeMs
   );
 }
 
@@ -256,11 +256,14 @@ export const HomeCatalogSnapshotStore = {
     void openDatabase();
   },
 
-  /** The stored rows and when they were saved, or null. */
-  async readEntry({ profileId = null, key = null } = {}) {
+  /**
+   * The stored rows and when they were saved, or null. A caller that refreshes
+   * the rows itself can accept any age with `maxAgeMs: Infinity`.
+   */
+  async readEntry({ profileId = null, key = null, maxAgeMs = SNAPSHOT_TTL_MS } = {}) {
     const normalizedKey = key || buildHomeCatalogSnapshotKey({ profileId });
     const record = await readRecord(normalizedKey);
-    if (!isHomeCatalogSnapshotFresh(record)) {
+    if (!isHomeCatalogSnapshotFresh(record, Date.now(), maxAgeMs)) {
       if (record) await transaction("readwrite", (store) => store.delete(normalizedKey));
       return null;
     }

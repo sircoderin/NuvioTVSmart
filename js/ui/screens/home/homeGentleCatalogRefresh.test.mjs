@@ -79,3 +79,27 @@ test("leaving Home stops the refresh", async (t) => {
   assert.deepEqual(fetched, ["a"]);
   assert.equal(rows.length, 1);
 });
+
+test("a TV staying on Home checks its catalogs every minute, not while away or hidden", async (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const { screen, route } = home(t);
+  const reasons = [];
+  screen.refreshHomeCatalogsIfStale = async ({ reason }) => reasons.push(reason);
+  globalThis.document = { visibilityState: "visible" };
+  t.after(() => {
+    clearInterval(screen.homeCatalogRefreshCheckTimer);
+    delete globalThis.document;
+  });
+
+  screen.startHomeCatalogRefreshChecks();
+  screen.startHomeCatalogRefreshChecks();
+  t.mock.timers.tick(60_000);
+  assert.deepEqual(reasons, ["home-idle"], "one check per minute, however often it is started");
+
+  route.current = "player";
+  t.mock.timers.tick(60_000);
+  globalThis.document.visibilityState = "hidden";
+  route.current = "home";
+  t.mock.timers.tick(60_000);
+  assert.equal(reasons.length, 1);
+});

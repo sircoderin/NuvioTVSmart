@@ -71,7 +71,8 @@ export function createHomeScreenMethods22() {
             type: catalog.type,
             skip: 0,
             skipStep: catalog.skipStep,
-            supportsSkip: catalog.supportsSkip !== false
+            supportsSkip: catalog.supportsSkip !== false,
+            maxAgeMs: options.maxAgeMs
           });
         const timedOut = { status: "error", message: "timeout" };
         const response = await withTimeout(request, timeoutMs, timedOut);

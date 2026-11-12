@@ -99,3 +99,23 @@ test("a catalog page with items is still served from the response cache", async 
   assert.equal(second.data.items.length, 1);
   assert.equal(stub.calls.length, 1);
 });
+
+test("a request with a maximum age fetches pages older than it again", async (t) => {
+  catalogRepository.clearCache();
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const stub = stubCatalogResponse([
+    { id: "tt1", name: "One", type: "movie", poster: "https://example.test/1.jpg" }
+  ]);
+  t.after(() => stub.restore());
+
+  const query = descriptor("aged");
+  await catalogRepository.getCatalog(query);
+  t.mock.timers.tick(10 * 60 * 1000);
+  await catalogRepository.getCatalog({ ...query, maxAgeMs: 15 * 60 * 1000 });
+  assert.equal(stub.calls.length, 1, "a page inside the window comes from memory");
+  t.mock.timers.tick(6 * 60 * 1000);
+  await catalogRepository.getCatalog({ ...query, maxAgeMs: 15 * 60 * 1000 });
+  assert.equal(stub.calls.length, 2, "an older page is requested again");
+  await catalogRepository.getCatalog(query);
+  assert.equal(stub.calls.length, 2, "without a maximum age the new page is reused");
+});

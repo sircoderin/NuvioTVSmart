@@ -156,6 +156,15 @@ test("snapshot freshness rejects another version, missing rows and expired recor
     isHomeCatalogSnapshotFresh({ ...fresh, savedAt: now - 13 * 60 * 60 * 1000 }, now),
     false
   );
+  assert.equal(
+    isHomeCatalogSnapshotFresh(
+      { ...fresh, savedAt: now - 10 * 24 * 60 * 60 * 1000 },
+      now,
+      Infinity
+    ),
+    true,
+    "a caller that refreshes the rows accepts any age"
+  );
 });
 
 function installFakeIndexedDb() {
@@ -242,6 +251,7 @@ test("snapshot store round-trips, expires and clears by profile", async () => {
     const record = records.get(key);
     record.savedAt = Date.now() - 13 * 60 * 60 * 1000;
     records.set(key, record);
+    assert.equal((await HomeCatalogSnapshotStore.read({ key, maxAgeMs: Infinity }))?.length, 1);
     assert.equal(await HomeCatalogSnapshotStore.read({ key }), null);
 
     await HomeCatalogSnapshotStore.write({ key, rows: [row("a:movie:top")] });

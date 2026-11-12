@@ -134,16 +134,24 @@ test("only successful catalog rows are written, with bounded items and no loadin
   assert.equal(compact.length, 1);
   assert.equal(compact[0].homeCatalogKey, "a:movie:top");
   assert.equal(compact[0].loadingItems, null);
-  assert.equal(compact[0].result.data.items.length, 60);
+  assert.equal(compact[0].result.data.items.length, 100);
   assert.equal(compact[0].result.data.items[0].poster, "https://image.tmdb.org/t/p/w500/0.jpg");
+});
+
+test("a shortened row pages on from its last stored item", () => {
+  const long = row("a:movie:top", 150);
+  Object.assign(long.result.data, { supportsSkip: true, hasMore: true, nextSkip: 150 });
+  const [compact] = compactHomeCatalogRows([long]);
+  assert.equal(compact.result.data.nextSkip, 100);
+  assert.equal(compact.result.data.hasMore, true);
 });
 
 test("snapshot freshness rejects another version, missing rows and expired records", () => {
   const now = 1_000_000_000;
-  const fresh = { version: 1, savedAt: now - 1000, rows: [row("a")] };
+  const fresh = { version: 2, savedAt: now - 1000, rowsJson: "[]" };
   assert.equal(isHomeCatalogSnapshotFresh(fresh, now), true);
-  assert.equal(isHomeCatalogSnapshotFresh({ ...fresh, version: 2 }, now), false);
-  assert.equal(isHomeCatalogSnapshotFresh({ ...fresh, rows: null }, now), false);
+  assert.equal(isHomeCatalogSnapshotFresh({ ...fresh, version: 1 }, now), false);
+  assert.equal(isHomeCatalogSnapshotFresh({ ...fresh, rowsJson: null }, now), false);
   assert.equal(
     isHomeCatalogSnapshotFresh({ ...fresh, savedAt: now - 13 * 60 * 60 * 1000 }, now),
     false
@@ -211,10 +219,25 @@ test("snapshot store round-trips, expires and clears by profile", async () => {
     await HomeCatalogSnapshotStore.clearAll();
     assert.equal(await HomeCatalogSnapshotStore.read({ key }), null);
 
-    assert.equal(await HomeCatalogSnapshotStore.write({ key, rows: [row("a:movie:top")] }), true);
-    const stored = await HomeCatalogSnapshotStore.read({ key });
+    const written = row("a:movie:top");
+    written.type = "movie";
+    written.result.data.apiType = "movie";
+    written.result.data.items = written.result.data.items.map((item) => ({
+      ...item,
+      addonBaseUrl: written.addonBaseUrl,
+      addonId: written.addonId,
+      addonName: written.addonName,
+      catalogType: "movie"
+    }));
+    assert.equal(await HomeCatalogSnapshotStore.write({ key, rows: [written] }), true);
+    const storedItem = JSON.parse(records.get(key).rowsJson)[0].result.data.items[0];
+    assert.equal("addonBaseUrl" in storedItem, false, "row fields are stored once per row");
+    const entry = await HomeCatalogSnapshotStore.readEntry({ key });
+    assert.ok(Date.now() - entry.savedAt < 1000);
+    const stored = entry.rows;
     assert.equal(stored.length, 1);
-    assert.equal(stored[0].result.data.items.length, 2);
+    assert.equal(stored[0].type, "movie", "the row keeps its descriptor");
+    assert.deepEqual(stored[0].result.data.items, written.result.data.items);
 
     const record = records.get(key);
     record.savedAt = Date.now() - 13 * 60 * 60 * 1000;

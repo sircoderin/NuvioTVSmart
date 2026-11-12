@@ -13,6 +13,13 @@ function catalogItemIdentity(item = {}) {
   return `${type}:${id}`;
 }
 
+// A gentle refresh fetches one catalog at a time, only once the viewer has
+// stopped pressing keys for this long.
+const GENTLE_REFRESH_KEY_QUIET_MS = 2500;
+const GENTLE_REFRESH_POLL_MS = 500;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function mergeHomeCatalogRefreshRow(currentRow, freshRow, { rowHasFocus = false, layoutMode = "" } = {}) {
   const currentItems = Array.isArray(currentRow?.result?.data?.items) ? currentRow.result.data.items : [];
   const freshItems = Array.isArray(freshRow?.result?.data?.items) ? freshRow.result.data.items : [];
@@ -313,6 +320,26 @@ export function createHomeScreenMethods04() {
       });
       return refreshPromise;
     },
+    // Resolves once Home is shown and keys have been idle for a moment; false
+    // when Home was left or reloaded meanwhile.
+    async waitForQuietHome(token) {
+      for (;;) {
+        if (token !== this.homeLoadToken || Router.getCurrent() !== "home") return false;
+        if (Date.now() - Number(this.lastHomeKeyDownAt || 0) >= GENTLE_REFRESH_KEY_QUIET_MS) return true;
+        await delay(GENTLE_REFRESH_POLL_MS);
+      }
+    },
+    async fetchCatalogRowsGently(descriptors, token) {
+      const startupLeftMs = Number(this.homeCatalogRefreshNotBefore || 0) - Date.now();
+      if (startupLeftMs > 0) await delay(startupLeftMs);
+      const rows = [];
+      for (const descriptor of descriptors) {
+        if (!(await this.waitForQuietHome(token))) return rows;
+        const [row] = await this.fetchCatalogRows([descriptor]);
+        if (row) rows.push(row);
+      }
+      return rows;
+    },
     async refreshHomeCatalogsIfStale({ reason = "catalogs-stale" } = {}) {
       if (
         Router.getCurrent() !== "home" ||
@@ -409,10 +436,22 @@ export function createHomeScreenMethods04() {
         if (!descriptors.length) {
           return false;
         }
-        this.lastHomeCatalogRefreshAtMs = Date.now();
-        const refreshedRows = await this.fetchCatalogRows(descriptors, {
-          concurrency: this.getDeferredCatalogBatchSize()
-        });
+        // A constrained TV fetches and parses one catalog at a time while the
+        // viewer is idle, instead of all of them in one burst. Its refresh time
+        // is recorded once it completes: an interrupted refresh runs again on
+        // return, and the catalogs it already fetched come from memory.
+        const gentle = this.isPerformanceConstrained();
+        if (!gentle) {
+          this.lastHomeCatalogRefreshAtMs = Date.now();
+        }
+        const refreshedRows = gentle
+          ? await this.fetchCatalogRowsGently(descriptors, token)
+          : await this.fetchCatalogRows(descriptors, {
+              concurrency: this.getDeferredCatalogBatchSize()
+            });
+        if (gentle && !(await this.waitForQuietHome(token))) {
+          return false;
+        }
         if (
           token !== this.homeLoadToken ||
           Router.getCurrent() !== "home" ||
@@ -440,10 +479,16 @@ export function createHomeScreenMethods04() {
           return mergedRow;
         });
 
+        if (gentle) {
+          this.lastHomeCatalogRefreshAtMs = Date.now();
+        }
         if (changedRowCount) {
           this.collections = CollectionsStore.get();
           this.rows = this.sortAndFilterRows(nextRows, this.collections);
           this.render();
+        }
+        if (gentle) {
+          this.saveHomeCatalogCache?.();
         }
         logHomePerf("catalogRefresh", {
           reason,

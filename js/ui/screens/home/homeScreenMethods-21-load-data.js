@@ -4,14 +4,22 @@ import { updateHomeLoadingStatus } from "./homeLoadingStatus.js";
 import { HomeCatalogSnapshotStore, buildHomeCatalogSnapshotKey } from "../../../data/local/homeCatalogSnapshotStore.js";
 
 const SNAPSHOT_READ_TIMEOUT_MS = 500;
+// On a constrained TV the cache stands in for catalogs that take seconds to
+// arrive from the network. Its answer waits behind startup work, and missing
+// it means requesting every catalog, so the wait is long.
+const CACHED_START_READ_TIMEOUT_MS = 8000;
 const SNAPSHOT_WRITE_INTERVAL_MS = 60 * 1000;
+// A constrained TV saves the catalogs once Home has settled, not mid-load.
+const CONSTRAINED_SNAPSHOT_WRITE_DELAY_MS = 5000;
+// The refresh of a Home started from the cache waits until startup is over.
+const CACHED_START_REFRESH_DELAY_MS = 15000;
 
-function readSnapshotWithTimeout(options) {
+function readSnapshotWithTimeout(options, timeoutMs = SNAPSHOT_READ_TIMEOUT_MS) {
   let timeoutId = null;
   const timeout = new Promise((resolve) => {
-    timeoutId = setTimeout(() => resolve(null), SNAPSHOT_READ_TIMEOUT_MS);
+    timeoutId = setTimeout(() => resolve(null), timeoutMs);
   });
-  return Promise.race([HomeCatalogSnapshotStore.read(options).catch(() => null), timeout]).then(
+  return Promise.race([HomeCatalogSnapshotStore.readEntry(options).catch(() => null), timeout]).then(
     (value) => {
       if (timeoutId !== null) clearTimeout(timeoutId);
       return value;
@@ -23,16 +31,28 @@ function readSnapshotWithTimeout(options) {
   );
 }
 
-// Constrained TVs skip the catalog cache: opening and reading it there takes
-// seconds, so it never paints before the network, and reading and writing the
-// rows still cost the main thread during startup.
-function usesHomeCatalogSnapshot(screen) {
-  return !screen?.isPerformanceConstrained?.();
+// Other devices race the cache against the network for a first paint. A
+// constrained TV cannot afford to fetch and parse every catalog at startup: it
+// requests the first rows, shows cached copies of the rest and refreshes them
+// gently afterwards.
+function startsFromHomeCatalogCache(screen) {
+  return Boolean(screen?.isPerformanceConstrained?.());
 }
 
 function persistHomeCatalogSnapshot(screen, token, { force = false } = {}) {
   const key = screen?.homeCatalogSnapshotKey;
-  if (!key || token !== screen.homeLoadToken || !usesHomeCatalogSnapshot(screen)) return;
+  if (!key || token !== screen.homeLoadToken) return;
+  if (startsFromHomeCatalogCache(screen)) {
+    // Only whole loads are saved, after the TV is idle again.
+    if (!force) return;
+    clearTimeout(screen.homeCatalogSnapshotWriteTimer);
+    screen.homeCatalogSnapshotWriteTimer = setTimeout(() => {
+      screen.homeCatalogSnapshotWriteTimer = null;
+      if (key !== screen.homeCatalogSnapshotKey) return;
+      void HomeCatalogSnapshotStore.write({ key, rows: screen.rows }).catch(() => {});
+    }, CONSTRAINED_SNAPSHOT_WRITE_DELAY_MS);
+    return;
+  }
   const now = Date.now();
   if (!force && now - Number(screen.lastHomeCatalogSnapshotWriteAt || 0) < SNAPSHOT_WRITE_INTERVAL_MS) {
     return;
@@ -81,9 +101,18 @@ export function createHomeScreenMethods21() {
   } = internals;
 
   return {
+    /** Saves the catalogs on screen, for a later start from the cache. */
+    saveHomeCatalogCache() {
+      persistHomeCatalogSnapshot(this, this.homeLoadToken, { force: true });
+    },
     async loadData({ background = false, preserveReturnState = false, refreshManifests = true } = {}) {
       const loadStart = HOME_PERF_DEBUG ? homePerfNow() : 0;
       const token = this.homeLoadToken;
+      const tryCachedStart = !background && !this.hasLoadedOnce && startsFromHomeCatalogCache(this);
+      if (tryCachedStart) {
+        // Opening the database overlaps the addon and progress work below.
+        HomeCatalogSnapshotStore.prepare();
+      }
       this.loadedHomeRouteInputSignature = "";
       const preserveHomeReturnState = Boolean(background && preserveReturnState);
       const preservedHeroItem = preserveHomeReturnState ? this.heroItem : null;
@@ -241,6 +270,11 @@ export function createHomeScreenMethods21() {
         homeCatalogPrefs: HomeCatalogStore.get()
       });
       this.homeCatalogSnapshotKey = homeCatalogSnapshotKey;
+      // Read while the first rows load from the network; it stands in for the
+      // later rows only.
+      const cachedEntryPromise = tryCachedStart
+        ? readSnapshotWithTimeout({ key: homeCatalogSnapshotKey }, CACHED_START_READ_TIMEOUT_MS)
+        : null;
 
       // Home requests catalogs in display order as far as the user can reach.
       const initialCatalogLoad = this.getInitialCatalogLoadCount();
@@ -295,13 +329,13 @@ export function createHomeScreenMethods21() {
           this.maybeStartPendingHomeBackgroundRefresh();
         }
       });
-      if (!background && !this.hasLoadedOnce && usesHomeCatalogSnapshot(this)) {
+      if (!background && !this.hasLoadedOnce && !tryCachedStart) {
         // Read the last successful catalog in parallel with the network. If
         // the addons answer first, the progressive rows above already won and
         // this snapshot is ignored; if the disk answers first, Home paints
         // while the same network refresh continues.
         const cachedRows = await Promise.race([
-          readSnapshotWithTimeout({ key: homeCatalogSnapshotKey }),
+          readSnapshotWithTimeout({ key: homeCatalogSnapshotKey }).then((entry) => entry?.rows || null),
           initialRowsPromise.then(() => null).catch(() => null)
         ]);
         if (cachedRows?.length && token === this.homeLoadToken && Router.getCurrent() === "home" && !this.hasLoadedOnce) {
@@ -430,9 +464,21 @@ export function createHomeScreenMethods21() {
       });
 
       initialRows.forEach((row) => this.noteHomeLoadingStatusRow(token, row));
-      void this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults }).then(() => {
-        persistHomeCatalogSnapshot(this, token, { force: true });
-        this.finishHomeLoadingStatus(token);
+      const cachedRowsPromise = cachedEntryPromise
+        ? cachedEntryPromise.then((entry) => this.showCachedHomeCatalogRows(entry, deferredDescriptors, token))
+        : Promise.resolve(null);
+      void cachedRowsPromise.then((cachedKeys) => {
+        const rangeDescriptors = cachedKeys
+          ? deferredDescriptors.filter((catalog) => !cachedKeys.has(catalog.homeCatalogKey))
+          : deferredDescriptors;
+        return this.loadHomeCatalogRange(rangeDescriptors, { token, prefetchedResults }).then(() => {
+          // Cached rows are saved again only once the refresh has replaced
+          // them, so the saved time stays the age of the oldest row.
+          if (!cachedKeys) {
+            persistHomeCatalogSnapshot(this, token, { force: true });
+          }
+          this.finishHomeLoadingStatus(token);
+        });
       });
       this.ensureHomeCatalogWindowForNode(this.getCurrentFocusedNode());
 
@@ -450,6 +496,43 @@ export function createHomeScreenMethods21() {
       }
 
       this.retryPendingCatalogRows();
+    },
+    /**
+     * Shows the cached copies of the catalogs after the first rows, in place
+     * of requesting them, and schedules their refresh. Returns the keys shown,
+     * or null when the cache had none of them.
+     */
+    showCachedHomeCatalogRows(entry, descriptors, token) {
+      if (!entry?.rows?.length || token !== this.homeLoadToken || Router.getCurrent() !== "home") {
+        return null;
+      }
+      const wanted = new Set(descriptors.map((catalog) => catalog.homeCatalogKey));
+      const rows = entry.rows.filter((row) => wanted.has(row.homeCatalogKey));
+      if (!rows.length) {
+        return null;
+      }
+      const heroBefore = this.captureHomeHeroState();
+      const combinedByKey = new Map((this.rows || []).map((row) => [row.homeCatalogKey, row]));
+      rows.forEach((row) => {
+        if (!combinedByKey.has(row.homeCatalogKey)) combinedByKey.set(row.homeCatalogKey, row);
+      });
+      this.rows = this.sortAndFilterRows(Array.from(combinedByKey.values()), this.collections);
+      this.heroCandidates = uniqueById(this.collectHeroCandidates(this.rows));
+      rows.forEach((row) => this.noteHomeLoadingStatusRow(token, row));
+      void this.refreshWatchedTitleState({ token });
+      this.publishLoadedHomeRows(heroBefore);
+      // Most rows on screen are now as old as the cache.
+      this.lastHomeCatalogRefreshAtMs = entry.savedAt;
+      this.homeCatalogRefreshNotBefore = Date.now() + CACHED_START_REFRESH_DELAY_MS;
+      clearTimeout(this.cachedHomeCatalogRefreshTimer);
+      this.cachedHomeCatalogRefreshTimer = setTimeout(() => {
+        this.cachedHomeCatalogRefreshTimer = null;
+        if (token !== this.homeLoadToken) return;
+        void this.refreshHomeCatalogsIfStale({ reason: "cached-start" }).catch((error) => {
+          console.warn("Home cached catalog refresh failed", error);
+        });
+      }, CACHED_START_REFRESH_DELAY_MS);
+      return new Set(rows.map((row) => row.homeCatalogKey));
     },
     loadHomeCatalogRange(descriptors = [], { token = this.homeLoadToken, prefetchedResults = null } = {}) {
       if (!descriptors.length) {

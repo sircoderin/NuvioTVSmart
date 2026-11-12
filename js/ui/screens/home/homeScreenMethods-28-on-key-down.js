@@ -19,6 +19,7 @@ export function createHomeScreenMethods28() {
 
   return {
     onKeyDown(event) {
+      this.lastHomeKeyDownAt = Date.now();
       const currentFocusedNode = this.getCurrentFocusedNode() || this.container?.querySelector(".focusable") || null;
       const code = Number(event?.keyCode || 0);
       if (code === 13 || isDirectionalKeyCode(code)) {

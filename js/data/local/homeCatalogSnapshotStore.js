@@ -9,10 +9,12 @@ const DATABASE_VERSION = 1;
 const STORE_NAME = "snapshots";
 // Bump this whenever the compact row shape changes; old records are ignored
 // and deleted on read instead of being interpreted as the new shape.
-const SNAPSHOT_VERSION = 1;
+const SNAPSHOT_VERSION = 2;
 const SNAPSHOT_TTL_MS = 12 * 60 * 60 * 1000;
-const MAX_ROWS = 40;
-const MAX_ITEMS_PER_ROW = 60;
+const MAX_ROWS = 80;
+const MAX_ITEMS_PER_ROW = 100;
+// Copied onto every item from its row; stored once per row instead.
+const ROW_ITEM_FIELDS = ["addonBaseUrl", "addonId", "addonName"];
 const MAX_RECORDS = 8;
 
 let databasePromise = null;
@@ -127,12 +129,29 @@ export function buildHomeCatalogSnapshotKey({
   return `${currentProfileId(profileId)}:${stableHash(JSON.stringify([currentAccountKey(), addons, prefs]))}`;
 }
 
-function cloneJson(value) {
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch (_) {
-    return null;
-  }
+function compactItem(item, row, catalogType) {
+  if (!item || typeof item !== "object") return item;
+  const compact = { ...item };
+  ROW_ITEM_FIELDS.forEach((field) => {
+    if (compact[field] === row[field]) delete compact[field];
+  });
+  if (compact.catalogType === catalogType) delete compact.catalogType;
+  return compact;
+}
+
+function expandRow(row = {}) {
+  const data = row?.result?.data;
+  if (!data || !Array.isArray(data.items)) return row;
+  const catalogType = data.apiType ?? row.apiType;
+  const shared = {};
+  ROW_ITEM_FIELDS.forEach((field) => {
+    if (row[field] !== undefined) shared[field] = row[field];
+  });
+  if (catalogType !== undefined) shared.catalogType = catalogType;
+  data.items = data.items.map((item) =>
+    item && typeof item === "object" ? { ...shared, ...item } : item
+  );
+  return row;
 }
 
 function compactRow(row = {}) {
@@ -140,25 +159,35 @@ function compactRow(row = {}) {
   if (!result || result.status !== "success" || !Array.isArray(result?.data?.items)) {
     return null;
   }
-  const items = cloneJson(result.data.items.slice(0, MAX_ITEMS_PER_ROW));
-  if (!Array.isArray(items) || !items.length) return null;
+  const catalogType = result.data.apiType ?? row.apiType;
+  const allItems = result.data.items;
+  const items = allItems
+    .slice(0, MAX_ITEMS_PER_ROW)
+    .map((item) => compactItem(item, row, catalogType));
+  if (!items.length) return null;
+  // A shortened row continues from its last stored item, not from the end of
+  // the page the addon sent.
+  const truncated = allItems.length > items.length;
+  const paging =
+    truncated && result.data.supportsSkip
+      ? {
+          hasMore: true,
+          nextSkip: Number(result.data.nextSkip || 0) - (allItems.length - items.length)
+        }
+      : {};
+  // The whole row is kept: a Home started from the cache shows these rows
+  // until they are refreshed, so paging and See All need their descriptor.
   return {
-    addonId: row.addonId,
-    addonName: row.addonName,
-    addonBaseUrl: row.addonBaseUrl,
-    catalogId: row.catalogId,
-    catalogName: row.catalogName,
-    apiType: row.apiType,
+    ...row,
     result: {
       status: "success",
       data: {
-        ...cloneJson(result.data),
+        ...result.data,
+        ...paging,
         items
       }
     },
-    loadingItems: null,
-    homeCatalogKey: row.homeCatalogKey,
-    homeCatalogDisableKey: row.homeCatalogDisableKey
+    loadingItems: null
   };
 }
 
@@ -175,7 +204,7 @@ export function isHomeCatalogSnapshotFresh(record, now = Date.now()) {
   return Boolean(
     record &&
     Number(record.version || 0) === SNAPSHOT_VERSION &&
-    Array.isArray(record.rows) &&
+    typeof record.rowsJson === "string" &&
     Number(record.savedAt || 0) > 0 &&
     now - Number(record.savedAt) <= SNAPSHOT_TTL_MS
   );
@@ -193,6 +222,15 @@ async function readRecord(key) {
 }
 
 async function trimRecords() {
+  // Counting keys is cheap; reading every record copies every stored catalog.
+  const keys = await transaction("readonly", (store) => {
+    const request = store.getAllKeys();
+    return new Promise((resolve) => {
+      request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+      request.onerror = () => resolve([]);
+    });
+  });
+  if (!keys.ok || keys.value.length <= MAX_RECORDS) return;
   const result = await transaction("readonly", (store) => {
     const request = store.getAll();
     return new Promise((resolve) => {
@@ -213,14 +251,33 @@ async function trimRecords() {
 }
 
 export const HomeCatalogSnapshotStore = {
-  async read({ profileId = null, key = null } = {}) {
+  /** Opens the database ahead of the first read. */
+  prepare() {
+    void openDatabase();
+  },
+
+  /** The stored rows and when they were saved, or null. */
+  async readEntry({ profileId = null, key = null } = {}) {
     const normalizedKey = key || buildHomeCatalogSnapshotKey({ profileId });
     const record = await readRecord(normalizedKey);
     if (!isHomeCatalogSnapshotFresh(record)) {
       if (record) await transaction("readwrite", (store) => store.delete(normalizedKey));
       return null;
     }
-    return cloneJson(record.rows) || [];
+    // One string per record: reading thousands of stored objects back costs
+    // far more than parsing their text.
+    let rows;
+    try {
+      rows = JSON.parse(record.rowsJson);
+    } catch (_) {
+      return null;
+    }
+    if (!Array.isArray(rows)) return null;
+    return { rows: rows.map(expandRow), savedAt: Number(record.savedAt) };
+  },
+
+  async read(options = {}) {
+    return (await this.readEntry(options))?.rows || null;
   },
 
   async write({ profileId = null, key = null, rows = [] } = {}) {
@@ -231,7 +288,7 @@ export const HomeCatalogSnapshotStore = {
       key: normalizedKey,
       version: SNAPSHOT_VERSION,
       savedAt: Date.now(),
-      rows: compactRows
+      rowsJson: JSON.stringify(compactRows)
     };
     const written = await transaction("readwrite", (store) => store.put(record));
     if (written.ok) await trimRecords();

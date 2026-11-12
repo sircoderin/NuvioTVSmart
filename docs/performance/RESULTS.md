@@ -428,3 +428,44 @@ reload, and the pairs interleaved.
   A likely cause is that a fifth busy thread competes with the main, raster
   and artwork threads for the four A55 cores; this was not traced. The
   change is kept outside the repository, under `.cache/tv-performance/`.
+
+## Catalog cache start on constrained TVs (November 12, 2026)
+
+Native Legacy, installed on the same TV, keeps compact per-profile catalog
+files (`catalogo-*.bin`, 76-190 KB), sharded title metadata files and a
+negative cache that does not repeat a failed HTTP request for 24 hours. Its
+logs show it paints Home from the catalog cache and refreshes from the network.
+The web app downloaded and parsed all 54 catalog pages (15.5 MB) on every
+start.
+
+A constrained TV now requests the first catalog batch as before and shows the
+cached copies of the other catalogs instead of requesting them. The cache is
+refreshed one catalog at a time once startup is over. Cold reloads, cache
+blocked through the inspector versus allowed, interleaved on one build:
+
+| Run       | Catalog pages parsed before 15 s | Home interactive | Catalogs done | Long tasks (first 20 s) |
+| --------- | -------------------------------- | ---------------- | ------------- | ----------------------- |
+| network 1 | 54 (1.07 s)                      | 6.0 s            | 10.0 s        | 4.6 s                   |
+| cache 1   | 5 (0.07 s)                       | 4.3 s            | 4.3 s         | 3.4 s                   |
+| network 2 | 54 (1.13 s)                      | 4.7 s            | 9.0 s         | 3.9 s                   |
+| cache 2   | 5 (0.05 s)                       | 4.3 s            | 4.3 s         | 3.3 s                   |
+| network 3 | 54 (1.18 s)                      | 4.7 s            | 10.2 s        | 4.3 s                   |
+
+The third cache run of that build hit a slow phase of the TV (interactive
+9.4 s): its cache read missed the then 3 s timeout and it fell back to
+requesting every catalog. The read itself takes 15 ms to open and 33 ms to
+read the 1.75 MB record when the TV is idle; during startup its callbacks wait
+behind main-thread tasks. The timeout is now 8 s.
+
+With the cache aged to an hour, the refresh started at 20 s and fetched the
+49 cached catalogs in 6 s. After 15 s there were four long tasks, the longest
+142 ms, and the record was saved again.
+
+A first version that rendered every cached row in Home's first render was not
+kept: that render took 0.9 s (0.4 s with the first batch only), and the long
+tasks did not drop.
+
+Not done yet, also from Native Legacy: persisting the metadata Next Up uses
+(up to 32 series lookups per start; in-progress Continue Watching cards
+already have a 14-day enrichment cache) and a negative cache for meta lookups
+that failed.

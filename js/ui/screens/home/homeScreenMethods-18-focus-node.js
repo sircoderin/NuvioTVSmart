@@ -1,4 +1,5 @@
 import * as internals from "./homeScreenContext.js";
+import { createHomeRowWindow, isHomeRowWindowSupported, HOME_ROW_WINDOW_SELECTOR } from "./homeRowWindow.js";
 
 export function createHomeScreenMethods18() {
   const { HOME_PERF_DEBUG, homePerfNow, logHomePerf, groupNodesByOffsetTop } = internals;
@@ -12,6 +13,7 @@ export function createHomeScreenMethods18() {
         return false;
       }
       this.refreshPendingHomeTrailerCleanup();
+      this.homeRowWindow?.ensureReady(target);
       const focusStart = HOME_PERF_DEBUG ? homePerfNow() : 0;
       const scrollAdjustments = this.getExpandedPosterScrollAdjustments(current, target, direction);
       const shouldInstantCollapseExpandedPoster =
@@ -25,8 +27,15 @@ export function createHomeScreenMethods18() {
       target.classList.add("focused");
       this.focusWithoutAutoScroll(target, { suppressDelegatedFocus: true });
       this.setCurrentFocusedNode(target);
+      const deferHomeArtworkUntilSettle =
+        direction === "up" ||
+        direction === "down" ||
+        (this.layoutMode === "modern" &&
+          !this.isPerformanceConstrained() &&
+          !this.isLegacyTvRuntime() &&
+          (direction === "left" || direction === "right"));
       this.scheduleHomeLazyImageHydration(target, {
-        deferUntilVerticalSettle: direction === "up" || direction === "down",
+        deferUntilVerticalSettle: deferHomeArtworkUntilSettle,
         focusedRowOnly: this.isLegacyTvRuntime()
       });
       if (this.isCollectionFolderNode(current)) {
@@ -198,6 +207,32 @@ export function createHomeScreenMethods18() {
       if (!this.lastMainFocus || !this.container?.contains(this.lastMainFocus) || !this.isMainNode(this.lastMainFocus)) {
         this.lastMainFocus = rows[0]?.[0] || null;
       }
+      this.syncHomeRowWindow();
+    },
+    prepareHomeRowsForRestore(state = null) {
+      // Coming back to a kept Home DOM: the window was dropped in cleanup.
+      this.syncHomeRowWindow();
+      const rowKeys = Object.entries(state?.trackStates || {})
+        .filter(([, scrollLeft]) => Number(scrollLeft) > 0)
+        .map(([rowKey]) => rowKey);
+      this.homeRowWindow?.ensureRowKeysReady([...rowKeys, state?.rowKey]);
+    },
+    syncHomeRowWindow() {
+      const root = this.layoutMode === "modern" ? this.container?.querySelector(".home-modern-rows-viewport") : null;
+      // Virtual rows already keep only the rows near focus in the DOM, and
+      // parking those would reset the track positions the window saves.
+      if (!root || !isHomeRowWindowSupported() || this.usesVirtualHomeRows?.()) {
+        this.homeRowWindow?.destroy();
+        this.homeRowWindow = null;
+        this.homeRowWindowRoot = null;
+        return;
+      }
+      if (this.homeRowWindowRoot !== root) {
+        this.homeRowWindow?.destroy();
+        this.homeRowWindow = createHomeRowWindow({ root });
+        this.homeRowWindowRoot = root;
+      }
+      this.homeRowWindow.observe(Array.from(root.querySelectorAll(HOME_ROW_WINDOW_SELECTOR)));
     }
   };
 }

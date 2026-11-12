@@ -33,7 +33,7 @@ export function createHomeScreenMethods20() {
       const mountStart = HOME_PERF_DEBUG ? homePerfNow() : 0;
       const isBackNavigation = Boolean(navigationContext?.isBackNavigation);
       this.container = document.getElementById("home");
-      // Returning before the deferred release ran keeps the loaded artwork.
+      // Returning before the release for playback ran keeps the loaded artwork.
       this.cancelDeferredHomeArtworkRelease();
       this.hasUserInteractedSinceHomePaint = false;
       const restoredRouteFocusState =
@@ -320,7 +320,10 @@ export function createHomeScreenMethods20() {
       const rendered = this.renderedWatchedTitleIds;
       const unchanged =
         rendered instanceof Set && rendered.size === this.watchedTitleIds.size && [...rendered].every((id) => this.watchedTitleIds.has(id));
-      if (!unchanged && !this.adoptWatchedTitleIdsInPlace(rendered, this.watchedTitleIds)) {
+      if (unchanged) {
+        // Same titles: keep the rendered set, whose identity the row markup cache checks.
+        this.watchedTitleIds = rendered;
+      } else if (!this.adoptWatchedTitleIdsInPlace(rendered, this.watchedTitleIds)) {
         this.requestBackgroundRender();
       }
     },

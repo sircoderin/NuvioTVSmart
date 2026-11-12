@@ -36,7 +36,6 @@ function buildHome({
       CW_DAYS_CAP: 30,
       HOME_LAZY_IMAGE_LIFECYCLE_SELECTOR: LIFECYCLE_SELECTOR,
       HOME_LAZY_IMAGE_ROW_SELECTOR: ROW_SELECTOR,
-      HOME_LAZY_IMAGE_EVICT_MARGIN_PX: 1600,
       HOME_LEGACY_LAZY_HYDRATION_DEBOUNCE_MS: 180,
       HOME_LEGACY_LAZY_HYDRATION_MAX_PER_FRAME: 2,
       Router: { getCurrent: () => route },
@@ -50,10 +49,13 @@ function buildHome({
     rescaleHomeArtwork: rescale?.rescale || (() => Promise.resolve(null)),
     releaseHomeArtwork: rescale?.release || (() => {}),
     shouldRescaleHomeArtwork: rescale?.enabled || (() => false),
-    getHomeArtworkPixelRatio: () => 1,
+    getTvArtworkPixelRatio: () => 1,
     getHomeArtworkObjectFit: rescale?.fit || (() => "cover"),
     isRescalableArtworkFit: (fit) => fit === "cover" || fit === "fill",
-    isHomeBootSnapshotVisible: () => bootSnapshot
+    isHomeBootSnapshotVisible: () => bootSnapshot,
+    getArtworkEvictIdleMs: () => 0,
+    getArtworkEvictMarginPx: () => 1600,
+    getDeviceMemoryGb: () => 0
   });
   context.globalThis = context;
   context.innerWidth = 1920;
@@ -151,6 +153,7 @@ function makeScreen(context, { rows, images }) {
     isSidebarFocusActive: () => false,
     shouldUseImmediateFocusScroll: () => false,
     isModernVerticalScrollActive: () => false,
+    isModernHydrationScrollActive: () => false,
     getCurrentFocusedNode: () => null
   });
 }
@@ -233,6 +236,7 @@ test("animated vertical navigation waits for the camera to settle before hydrati
   screen.layoutMode = "modern";
   let scrolling = true;
   screen.isModernVerticalScrollActive = () => scrolling;
+  screen.isModernHydrationScrollActive = () => scrolling;
 
   screen.scheduleHomeLazyImageHydration(row, { deferUntilVerticalSettle: true });
   await new Promise((resolve) => setTimeout(resolve, 15));
@@ -465,25 +469,37 @@ function buildReleaseScheduler(timers) {
     context
   );
   const screen = {
+    homeDomPreserved: true,
     releaseAllHomeLazyImages: () => context.calls.push("release"),
     cancelDeferredHomeArtworkRelease: context.api.cancelDeferredHomeArtworkRelease,
-    scheduleHomeArtworkRelease: context.api.scheduleHomeArtworkRelease,
     releaseRetainedHomeArtworkSoon: context.api.releaseRetainedHomeArtworkSoon
   };
   return { screen, calls: context.calls };
 }
 
-test("Home artwork outlives a quick visit to another screen", () => {
+test("playback releases retained Home artwork once the player has painted", () => {
   const timers = [];
   const { screen, calls } = buildReleaseScheduler(timers);
-  screen.scheduleHomeArtworkRelease(30000);
-  assert.equal(timers.at(-1).ms, 30000, "posters are kept while the viewer may come back");
   screen.releaseRetainedHomeArtworkSoon();
-  assert.ok(timers[0].cleared, "playback replaces the long wait");
-  assert.equal(timers.at(-1).ms, 800, "playback releases the artwork once its screen has painted");
+  assert.equal(timers.at(-1).ms, 800);
   timers.at(-1).callback();
   assert.deepEqual(calls, ["release", "reset"], "posters are handed back before the pool goes");
-  const scheduled = timers.length;
+});
+
+test("returning to Home before the release keeps its artwork", () => {
+  const timers = [];
+  const { screen, calls } = buildReleaseScheduler(timers);
   screen.releaseRetainedHomeArtworkSoon();
-  assert.equal(timers.length, scheduled, "nothing is scheduled once the artwork is gone");
+  screen.cancelDeferredHomeArtworkRelease();
+  assert.ok(timers[0].cleared);
+  assert.deepEqual(calls, []);
+});
+
+test("nothing is released once Home's DOM is gone", () => {
+  const timers = [];
+  const { screen, calls } = buildReleaseScheduler(timers);
+  screen.homeDomPreserved = false;
+  screen.releaseRetainedHomeArtworkSoon();
+  assert.equal(timers.length, 0);
+  assert.deepEqual(calls, []);
 });

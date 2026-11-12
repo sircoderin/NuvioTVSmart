@@ -1,4 +1,5 @@
 import { LayoutPreferences } from "../../../data/local/layoutPreferences.js";
+import { unchangedHomeRowMarkup } from "./homeDomUpdate.js";
 
 export const MODERN_HOME_CONSTANTS = {
   heroFocusDelayMs: 450,
@@ -8,6 +9,10 @@ export const MODERN_HOME_CONSTANTS = {
   verticalKeyRepeatThrottleMs: 112,
   trackPaginationIdleMs: 160,
   trackPaginationPrefetchDelayMs: 40,
+  // Constrained rows mount 8 cards, so the load-ahead rule is already true
+  // when focus lands on a row. Wait for focus to rest there before fetching
+  // and appending the next page, or every row crossed on the way pays for it.
+  trackPaginationPrefetchDwellConstrainedMs: 400,
   trackPaginationLoadAheadItems: 4,
   cameraFollowDelayMs: 140,
   cameraFollowDurationXMs: 440,
@@ -15,7 +20,6 @@ export const MODERN_HOME_CONSTANTS = {
   cameraSafetyDurationMs: 180,
   verticalScrollSettlePollMs: 60,
   smartTvLazyHydrationDebounceMs: 240,
-  smartTvTrailerCleanupDelayMs: 900,
   springScrollStiffness: 180,
   springScrollDampingRatio: 0.95,
   rowFocusInset: 40,
@@ -24,6 +28,16 @@ export const MODERN_HOME_CONSTANTS = {
   verticalFastScrollEndTimeoutMs: 160,
   verticalFastScrollMaxFrameMs: 48
 };
+
+export function renderModernHeroBadges(badges = [], escapeHtml) {
+  const visibleBadges = badges.filter(Boolean);
+  if (visibleBadges.length === 2) {
+    return `<span class="home-modern-hero-badge home-modern-hero-badge-combined"><span>${escapeHtml(visibleBadges[0])}</span><span class="home-modern-hero-badge-divider" aria-hidden="true"></span><span>${escapeHtml(visibleBadges[1])}</span></span>`;
+  }
+  return visibleBadges
+    .map((badge) => `<span class="home-modern-hero-badge">${escapeHtml(badge)}</span>`)
+    .join("");
+}
 
 export function renderModernHomeLayout({
   rows = [],
@@ -53,11 +67,23 @@ export function renderModernHomeLayout({
   formatCatalogRowTitle,
   shouldDeferRowImages,
   watchedTitleIds = null,
+  // Home only. A catalog landing re-renders Home once per row: without these
+  // every pass rebuilt and re-parsed every row already on screen (4 s of a
+  // 2025 webOS set's startup). rowMarkupCache: WeakMap of a row's items to its
+  // last markup; mountedRowMarkups: row key to the markup now in the DOM.
+  rowMarkupCache = null,
+  mountedRowMarkups = null,
   escapeHtml,
   escapeAttribute,
   rowWindow = null
 } = {}) {
-  const { catalogSeeAllMap, markup: catalogMarkup } = renderModernCatalogRows({
+  const posterSettings = LayoutPreferences.get();
+  const {
+    catalogSeeAllMap,
+    markup: catalogMarkup,
+    domMarkup: catalogDomMarkup,
+    rowMarkups
+  } = renderModernCatalogRows({
     rows,
     rowItemLimit,
     showPosterLabels,
@@ -70,13 +96,14 @@ export function renderModernHomeLayout({
     formatCatalogRowTitle,
     shouldDeferRowImages,
     watchedTitleIds,
+    rowMarkupCache,
+    mountedRowMarkups,
+    posterSettings,
     escapeHtml,
     rowWindow
   });
 
-  return {
-    catalogSeeAllMap,
-    markup: `
+  const stageMarkup = (catalogSections) => `
       <section class="home-modern-stage">
         ${
           showHeroSection
@@ -101,7 +128,8 @@ export function renderModernHomeLayout({
               itemLimit: continueWatchingRenderLimit,
               useEpisodeThumbnails: useEpisodeThumbnailsInCw,
               blurNextUp: blurContinueWatchingNextUp,
-              cardStyle: continueWatchingCardStyle
+              cardStyle: continueWatchingCardStyle,
+              posterSettings
             })}
             ${renderContinueWatchingSection(upcomingItems, {
               rowKey: "upcoming_section",
@@ -111,15 +139,23 @@ export function renderModernHomeLayout({
               itemLimit: upcomingItems.length,
               useEpisodeThumbnails: useEpisodeThumbnailsInCw,
               blurNextUp: blurContinueWatchingNextUp,
-              cardStyle: continueWatchingCardStyle
+              cardStyle: continueWatchingCardStyle,
+              posterSettings
             })}
             <div class="home-modern-catalogs${rowWindow ? " home-catalogs-virtual" : ""}">
-              ${catalogMarkup}
+              ${catalogSections}
             </div>
           </div>
         </div>
       </section>
-    `
+    `;
+  const [beforeCatalogs, afterCatalogs] = stageMarkup("\u0000").split("\u0000");
+  return {
+    catalogSeeAllMap,
+    rowMarkups,
+    markup: beforeCatalogs + catalogMarkup + afterCatalogs,
+    // Same page with the rows already mounted left out, for the in-place update.
+    domMarkup: beforeCatalogs + catalogDomMarkup + afterCatalogs
   };
 }
 
@@ -137,12 +173,28 @@ export function renderModernCatalogRows({
   formatCatalogRowTitle,
   shouldDeferRowImages,
   watchedTitleIds = null,
+  // rowMarkupCache: WeakMap of a row's items to its last markup;
+  // mountedRowMarkups: escaped row key to the markup now in the DOM.
+  rowMarkupCache = null,
+  mountedRowMarkups = null,
+  posterSettings = LayoutPreferences.get(),
   escapeHtml,
   rowWindow = null
 } = {}) {
   const catalogSeeAllMap = new Map();
   const sectionsMarkup = [];
-  const posterSettings = LayoutPreferences.get();
+  const domSectionsMarkup = [];
+  const rowMarkups = new Map();
+  const posterSettingsKey = rowMarkupCache ? JSON.stringify(posterSettings) : "";
+  const pushSection = (escapedRowKey, markup) => {
+    sectionsMarkup.push(markup);
+    domSectionsMarkup.push(
+      mountedRowMarkups?.get(escapedRowKey) === markup
+        ? unchangedHomeRowMarkup(escapedRowKey)
+        : markup
+    );
+    rowMarkups.set(escapedRowKey, markup);
+  };
 
   rows.forEach((rowData, rowIndex) => {
     if (rowWindow && !rowWindow.indices.has(rowIndex)) return;
@@ -191,6 +243,30 @@ export function renderModernCatalogRows({
       typeof shouldDeferRowImages === "function"
         ? shouldDeferRowImages(rowIndex, rowKey, focusedRowKey)
         : false;
+    const escapedRowKey = escapeHtml(rowKey);
+    // Everything a row's markup is built from; the items themselves are
+    // covered by the identity of their array, which a refresh replaces.
+    const cacheKey = [
+      rowKey,
+      rowIndex,
+      visibleItems.length,
+      rowTitle,
+      rowData.type,
+      rowData.addonBaseUrl,
+      rowData.addonId,
+      rowData.addonName,
+      Boolean(rowData.suppressPosterText),
+      showPosterLabels,
+      preferLandscapePosters,
+      deferRowImages,
+      expandFocusedPoster && focusedRowKey === rowKey ? focusedItemIndex : -1,
+      posterSettingsKey
+    ].join("\u0000");
+    const cached = rowMarkupCache && !isCollectionRow ? rowMarkupCache.get(rowItems) : null;
+    if (cached && cached.key === cacheKey && cached.watchedTitleIds === watchedTitleIds) {
+      pushSection(escapedRowKey, cached.markup);
+      return;
+    }
     const cardsMarkup = visibleItems
       .map((item, itemIndex) =>
         createPosterCardMarkup(
@@ -210,23 +286,31 @@ export function renderModernCatalogRows({
       )
       .join("");
 
-    sectionsMarkup.push(`
-      <section class="home-row home-modern-row home-row-enter" data-row-key="${escapeHtml(rowKey)}" data-row-index="${rowIndex}">
+    const sectionMarkup = `
+      <section class="home-row home-modern-row home-row-enter" data-row-key="${escapedRowKey}" data-row-index="${rowIndex}">
         <div class="home-row-head">
           <h2 class="home-row-title">${escapeHtml(rowTitle)}</h2>
         </div>
-        <div class="home-track" data-track-row-key="${escapeHtml(rowKey)}">
+        <div class="home-track" data-track-row-key="${escapedRowKey}">
           ${cardsMarkup}
         </div>
       </section>
-    `);
+    `;
+    pushSection(escapedRowKey, sectionMarkup);
+    if (rowMarkupCache && !isCollectionRow) {
+      rowMarkupCache.set(rowItems, { key: cacheKey, watchedTitleIds, markup: sectionMarkup });
+    }
   });
 
   const spacer = (edge, height) =>
     `<div class="home-catalog-spacer" data-virtual-edge="${edge}" aria-hidden="true" style="height:${height}px"${height > 0 ? "" : " hidden"}></div>`;
+  const top = rowWindow ? spacer("top", rowWindow.top) : "";
+  const bottom = rowWindow ? spacer("bottom", rowWindow.bottom) : "";
   return {
     catalogSeeAllMap,
-    markup: `${rowWindow ? spacer("top", rowWindow.top) : ""}${sectionsMarkup.join("")}${rowWindow ? spacer("bottom", rowWindow.bottom) : ""}`
+    rowMarkups,
+    markup: `${top}${sectionsMarkup.join("")}${bottom}`,
+    domMarkup: `${top}${domSectionsMarkup.join("")}${bottom}`
   };
 }
 
@@ -309,9 +393,9 @@ function renderModernHeroMarkup({
       `<span class="home-modern-hero-highlight">${escapeHtml(display.secondaryHighlightText)}</span>`
     );
   }
-  display.badges.forEach((badge) => {
-    secondaryParts.push(`<span class="home-modern-hero-badge">${escapeHtml(badge)}</span>`);
-  });
+  if (display.badges.length) {
+    secondaryParts.push(renderModernHeroBadges(display.badges, escapeHtml));
+  }
   if (display.showImdbSecondary) {
     secondaryParts.push(`
       <span class="home-hero-imdb">

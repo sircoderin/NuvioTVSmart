@@ -144,8 +144,20 @@ export function createHomeRowVirtualizationMethods() {
       // jumps (there is no retained catalog focus anchor in that case).
       this.syncVirtualHomeRowSpacers();
       payload.catalogSeeAllMap.forEach((value, key) => this.catalogSeeAllMap.set(key, value));
-      // Local window updates invalidate the whole-render equality shortcut.
+      // Local window updates invalidate the whole-render equality shortcut, and
+      // a full render may skip only rows that stayed mounted with their markup.
       this.renderedMarkup = null;
+      if (this.renderedRowMarkups) {
+        const { escapeHtml } = this.modernCatalogRenderOptions;
+        const kept = new Set(
+          entries
+            .filter((entry) => mountedKeys.has(entry.key))
+            .map((entry) => escapeHtml(entry.key))
+        );
+        for (const key of this.renderedRowMarkups.keys()) {
+          if (!kept.has(key)) this.renderedRowMarkups.delete(key);
+        }
+      }
       this.invalidateNavigationModel();
       this.buildNavigationModel();
       viewport.scrollTop =

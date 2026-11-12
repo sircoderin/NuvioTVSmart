@@ -1,4 +1,5 @@
 import { Router } from "../../navigation/routerState.js";
+import { focusWithoutScroll } from "../../navigation/focusWithoutScroll.js";
 
 import { ScreenUtils } from "../../navigation/screen.js";
 
@@ -261,8 +262,11 @@ export function animateSettingsRailScroll(rail, nextPosition, axis = "y") {
     }
   };
 
+  // Constrained sets snap, like Home: on a 2019 Tizen set the spring cost a
+  // 10 ms composite on each of its ~11 frames, for every key in Settings.
+  const snap = Boolean(globalThis.document?.body?.classList?.contains("performance-constrained"));
   const startPosition = readPosition();
-  if (Math.abs(nextPosition - startPosition) < 1 || typeof requestAnimationFrame !== "function") {
+  if (snap || Math.abs(nextPosition - startPosition) < 1 || typeof requestAnimationFrame !== "function") {
     writePosition(nextPosition);
     updateSettingsRailIndicators(rail);
     return;
@@ -320,15 +324,7 @@ export function updateSettingsRailIndicatorsSoon(rail) {
 }
 
 export function focusSettingsNode(node) {
-  if (!node || typeof node.focus !== "function") {
-    return;
-  }
-
-  try {
-    node.focus({ preventScroll: true });
-  } catch (_) {
-    node.focus();
-  }
+  focusWithoutScroll(node);
 }
 
 export function isScrollContainerAtBoundary(node, direction) {

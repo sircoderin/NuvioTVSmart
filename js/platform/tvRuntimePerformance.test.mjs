@@ -1,65 +1,80 @@
+import test from "node:test";
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { Platform } from "./index.js";
-import {
-  getTvRuntimePerformanceProfile,
-  getTvHeroTransitionMode,
-  resetTvRuntimePerformanceProfile
-} from "./tvRuntimePerformance.js";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { isLowMemoryDevice } from "./tvPerformancePolicy.js";
 
-function profile(platform, chromium, mode = "auto") {
-  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
-  const previousOverride = globalThis.__NUVIO_PLATFORM__;
-  const previousAdapter = Platform.current;
-  const previousStorage = globalThis.localStorage;
-  try {
-    globalThis.localStorage = { getItem: () => JSON.stringify(mode) };
-    Object.defineProperty(globalThis, "navigator", {
-      configurable: true,
-      value: { userAgent: `Chrome/${chromium}.0` }
-    });
-    globalThis.__NUVIO_PLATFORM__ = platform;
-    Platform.current = null;
-    resetTvRuntimePerformanceProfile();
-    return getTvRuntimePerformanceProfile();
-  } finally {
-    if (previousStorage === undefined) delete globalThis.localStorage;
-    else globalThis.localStorage = previousStorage;
-    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
-    else delete globalThis.navigator;
-    if (previousOverride === undefined) delete globalThis.__NUVIO_PLATFORM__;
-    else globalThis.__NUVIO_PLATFORM__ = previousOverride;
-    Platform.current = previousAdapter;
-    resetTvRuntimePerformanceProfile();
-  }
+function loadProfile({
+  webos = false,
+  tizenVersion = "",
+  chromium = 0,
+  memory = 0,
+  measured = null,
+  forced = null
+}) {
+  const source = readFileSync(new URL("./tvRuntimePerformance.js", import.meta.url), "utf8")
+    .replace(/^import[\s\S]*?;\n/gm, "")
+    .replace(/^export /gm, "");
+  return vm.runInNewContext(`${source}\n;({ getTvRuntimePerformanceProfile })`, {
+    Platform: {
+      isWebOS: () => webos,
+      isTizen: () => !webos,
+      getName: () => (webos ? "webos" : "tizen")
+    },
+    TizenCapabilities: { get: () => ({ tizenVersion, chromiumMajorVersion: chromium }) },
+    navigator: { userAgent: `Mozilla/5.0 Chrome/${chromium}.0.0.0 Safari/537.36` },
+    isLowMemoryDevice,
+    readMeasuredTvTier: () => measured,
+    readForcedTvTier: () => forced,
+    getDeviceMemoryGb: () => memory
+  }).getTvRuntimePerformanceProfile;
 }
 
-test("webOS 2022 and 2023 use lighter rendering without legacy API fallbacks", () => {
-  for (const chromium of [87, 94]) {
-    const result = profile("webos", chromium);
-    assert.equal(result.isPerformanceConstrained, true);
-    assert.equal(result.isLegacyTvRuntime, false);
-    assert.equal(getTvHeroTransitionMode(result), "single-layer");
-  }
+test("a modern TV with 1 GB of RAM is performance-constrained", () => {
+  assert.equal(
+    loadProfile({ tizenVersion: "9.0", chromium: 120, memory: 1 })().isPerformanceConstrained,
+    true
+  );
+  assert.equal(
+    loadProfile({ webos: true, chromium: 87, memory: 1 })().isPerformanceConstrained,
+    true
+  );
 });
 
-test("newer webOS and desktop keep modern rendering", () => {
-  assert.equal(profile("webos", 108).isPerformanceConstrained, false);
-  assert.equal(profile("browser", 87).isPerformanceConstrained, false);
+test("RAM does not downgrade a modern TV that reports 2 GB or more", () => {
+  assert.equal(
+    loadProfile({ tizenVersion: "9.0", chromium: 120, memory: 2 })().isPerformanceConstrained,
+    false
+  );
+  // webOS 2022/2023 (Chromium 87/94) is constrained by its year whatever its
+  // RAM; tvRuntimePerformanceWebOs.test.mjs covers that rule.
+  assert.equal(
+    loadProfile({ webos: true, chromium: 120, memory: 2 })().isPerformanceConstrained,
+    false
+  );
 });
 
-test("old and unidentified webOS retain their existing fallbacks", () => {
-  for (const chromium of [68, 0]) {
-    const result = profile("webos", chromium);
-    assert.equal(result.isPerformanceConstrained, true);
-    assert.equal(result.isLegacyTvRuntime, true);
-  }
+test("a modern TV measured slow is constrained without becoming a legacy runtime", () => {
+  const profile = loadProfile({ tizenVersion: "7.0", chromium: 94, measured: "constrained" })();
+  assert.equal(profile.isPerformanceConstrained, true);
+  assert.equal(profile.isMeasuredSlow, true);
+  assert.equal(profile.isLegacyTvRuntime, false);
 });
 
-test("rendering overrides do not change legacy API classification", () => {
-  assert.equal(profile("webos", 87, "full").isPerformanceConstrained, false);
-  assert.equal(profile("webos", 87, "full").isLegacyTvRuntime, false);
-  assert.equal(profile("webos", 68, "full").isLegacyTvRuntime, true);
-  assert.equal(profile("webos", 108, "reduced").isPerformanceConstrained, true);
-  assert.equal(profile("webos", 108, "reduced").isLegacyTvRuntime, false);
+test("the forced full tier drops the generation rule but not the measurement", () => {
+  const forcedFull = loadProfile({ tizenVersion: "5.0", chromium: 63, forced: "full" })();
+  assert.equal(forcedFull.isPerformanceConstrained, false);
+  assert.equal(forcedFull.isLegacyTvRuntime, false);
+  const measuredBack = loadProfile({
+    tizenVersion: "5.0",
+    chromium: 63,
+    forced: "full",
+    measured: "constrained"
+  })();
+  assert.equal(measuredBack.isPerformanceConstrained, true);
+  assert.equal(
+    loadProfile({ tizenVersion: "9.0", chromium: 120, forced: "constrained" })()
+      .isPerformanceConstrained,
+    true
+  );
 });

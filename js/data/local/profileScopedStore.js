@@ -11,6 +11,11 @@ const SETTINGS_SYNC_PENDING_KEY = "profileSettingsSyncPendingProfiles";
 const scheduledSettingsSyncTimers = new Map();
 const settingsSyncInFlightByProfile = new Map();
 let settingsSyncGeneration = 0;
+// Normalized envelopes keyed by storage key and memoized on the raw localStorage
+// string. Hot-path readers (Home card render, player and ambient ticks) call
+// readEnvelope every second on single-core TVs; reparsing, re-normalizing and
+// re-serializing an unchanged envelope each time dominated that cost.
+const normalizedEnvelopeCache = new Map();
 
 function normalizeProfileId(profileId) {
   const raw = String(profileId ?? ProfileManager.getActiveProfileId() ?? "1").trim();
@@ -65,46 +70,46 @@ function normalizeEnvelopeProfiles(profiles = {}, normalize) {
   return normalized;
 }
 
-// Normalized envelopes keyed by their exact stored text. Reads happen on every
-// settings lookup (Home calls several per row); reparsing and renormalizing all
-// profiles each time is costly on TVs. The raw comparison also catches writes
-// made through other code paths.
-const envelopeReadCache = new Map();
+function readRawStorageText(key) {
+  try {
+    const text = localStorage.getItem(key);
+    return typeof text === "string" || text === null ? text : undefined;
+  } catch (_error) {
+    return undefined;
+  }
+}
 
-function copyEnvelope(envelope) {
-  // Callers assign or delete profile entries before persisting; keep those
-  // edits off the cached object. Profile values are cloned before exposure.
-  return { ...envelope, profiles: { ...envelope.profiles } };
+function invalidateEnvelopeCache(key) {
+  normalizedEnvelopeCache.delete(key);
 }
 
 function readEnvelope(key, normalize, legacyProfileIds = null) {
-  const storedText = LocalStore.getRaw(key);
-  const cached = envelopeReadCache.get(key);
-  if (
-    cached &&
-    storedText !== null &&
-    cached.storedText === storedText &&
-    cached.normalize === normalize
-  ) {
-    return copyEnvelope(cached.envelope);
+  // The memo is keyed on the exact stored string, so any write that bypasses this
+  // module (cloud sync, profile cleanup, tests) is picked up on the next read.
+  const rawText = readRawStorageText(key);
+  const cached = rawText === undefined ? null : normalizedEnvelopeCache.get(key);
+  if (cached && cached.rawText === rawText) {
+    return cached.envelope;
   }
+  invalidateEnvelopeCache(key);
+
   const raw = LocalStore.get(key, null);
   if (isProfileScopedEnvelope(raw)) {
     const next = {
       ...raw,
       profiles: normalizeEnvelopeProfiles(raw.profiles, normalize)
     };
-    let nextStoredText = storedText;
-    if (JSON.stringify(next) !== JSON.stringify(raw)) {
+    const nextText = JSON.stringify(next);
+    if (nextText !== (typeof rawText === "string" ? rawText : JSON.stringify(raw))) {
       LocalStore.set(key, next);
-      nextStoredText = LocalStore.getRaw(key);
     }
-    if (nextStoredText !== null) {
-      envelopeReadCache.set(key, { storedText: nextStoredText, normalize, envelope: next });
+    if (rawText !== undefined) {
+      // nextText is exactly what LocalStore.set serializes, so a failed write
+      // simply misses the memo on the next read instead of returning stale data.
+      normalizedEnvelopeCache.set(key, { rawText: nextText, envelope: next });
     }
-    return copyEnvelope(next);
+    return next;
   }
-  envelopeReadCache.delete(key);
 
   if (raw == null) {
     return createEmptyEnvelope();
@@ -123,6 +128,9 @@ function readEnvelope(key, normalize, legacyProfileIds = null) {
 }
 
 function persistEnvelope(key, envelope) {
+  // The envelope may be the memoized instance; drop it so the next read
+  // re-reads whatever the write actually left in storage.
+  invalidateEnvelopeCache(key);
   LocalStore.set(key, envelope);
 }
 

@@ -31,10 +31,15 @@ export const TrackingScrobbleService = {
     enabledProviders().forEach((provider) => provider.pause(context));
   },
 
-  stop(context) {
+  /** Playback is being hidden and the app may be suspended or killed. */
+  suspend(context) {
+    enabledProviders().forEach((provider) => provider.suspend?.(context));
+  },
+
+  stop(context, options) {
     if (stopped) return;
     stopped = true;
-    enabledProviders().forEach((provider) => provider.stop(context));
+    enabledProviders().forEach((provider) => provider.stop(context, options));
   },
 
   cancel() {

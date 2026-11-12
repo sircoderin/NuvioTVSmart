@@ -58,13 +58,26 @@ function sleep(ms, signal = null) {
   });
 }
 
-async function rateLimitedFetch(url, options, method, signal = null) {
+// A keepalive request outlives the page, so it is used for the last report
+// before the app is closed or hidden.
+async function fetchKeepalive(url, init) {
+  try {
+    return await fetch(url, { ...init, keepalive: true });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    // A runtime that refuses keepalive here still gets a normal request.
+    return fetch(url, init);
+  }
+}
+
+async function rateLimitedFetch(url, options, method, signal = null, urgent = false) {
   const isGet = String(method || "GET").toUpperCase() === "GET";
   const scheduledAt = isGet ? nextGetAt : nextWriteAt;
   throwIfAborted(signal);
-  if (scheduledAt > Date.now()) await sleep(scheduledAt - Date.now(), signal);
+  if (!urgent && scheduledAt > Date.now()) await sleep(scheduledAt - Date.now(), signal);
   try {
-    return await fetch(url, { ...options, ...(signal ? { signal } : {}) });
+    const init = { ...options, ...(signal ? { signal } : {}) };
+    return await (urgent ? fetchKeepalive(url, init) : fetch(url, init));
   } finally {
     const nextAt = Date.now() + (isGet ? GET_INTERVAL_MS : WRITE_INTERVAL_MS);
     if (isGet) nextGetAt = Math.max(nextGetAt, nextAt);
@@ -100,7 +113,8 @@ async function executeSimklRequest(
     retry = true,
     authorizationToken = null,
     authProfileId = null,
-    signal = null
+    signal = null,
+    urgent = false
   } = {}
 ) {
   if (!SIMKL_CLIENT_ID) throw new Error("Missing SIMKL_CLIENT_ID");
@@ -128,7 +142,8 @@ async function executeSimklRequest(
           body: body == null ? undefined : JSON.stringify(body)
         },
         method,
-        requestSignal
+        requestSignal,
+        urgent
       );
     } catch (error) {
       if (requestSignal?.aborted || error?.name === "AbortError") throw error;
@@ -170,11 +185,12 @@ export function simklRequest(path, options = {}) {
   const signal = options.signal || AuthManager.getSessionSignal?.() || null;
   const authorizationToken =
     options.authenticated === false ? null : SimklAuthStore.get(authProfileId).accessToken;
-  const task = trackSessionRequest(
-    requestQueue.then(() =>
-      executeSimklRequest(path, { ...options, authProfileId, authorizationToken, signal })
-    )
-  );
+  const run = () =>
+    executeSimklRequest(path, { ...options, authProfileId, authorizationToken, signal });
+  // An urgent request is sent at once: the page may be gone before the queue
+  // reaches it.
+  if (options.urgent) return trackSessionRequest(run());
+  const task = trackSessionRequest(requestQueue.then(run));
   requestQueue = task.catch(() => false);
   return task;
 }

@@ -58,14 +58,24 @@ export function createPlayerScreenMethods11() {
       this.unbindPlayerExitCleanup();
       this.playerExitCleanupHandler = () => {
         if (this.hasPresentedPlaybackFrame && !this.postPlayNaturalCompletionPrepared && TrackingScrobbleService.isEnabled())
-          TrackingScrobbleService.stop(this.buildScrobbleContext());
+          TrackingScrobbleService.stop(this.buildScrobbleContext(), { urgent: true });
         void PlayerController.flushCurrentProgress({ forceCloudSync: true });
         this.sendEngineFsRemoveOnPageExit();
         this.releaseCurrentEngineFsStreamBestEffort("player-exit", { removeTorrent: true });
       };
+      // Switching the TV off or pressing Home hides the app without closing
+      // it, and it may be killed while hidden: report the position now. The
+      // runtime may pause the video first, and that pause's queued report
+      // would not be sent before the app is suspended.
+      this.playerHiddenScrobbleHandler = () => {
+        const hidden = document.visibilityState === "hidden" || document.webkitHidden === true;
+        if (hidden && this.hasPresentedPlaybackFrame && TrackingScrobbleService.isEnabled())
+          TrackingScrobbleService.suspend(this.buildScrobbleContext());
+      };
       window.addEventListener("pagehide", this.playerExitCleanupHandler);
       window.addEventListener("beforeunload", this.playerExitCleanupHandler);
       document.addEventListener("nuvio:beforeExitApp", this.playerExitCleanupHandler);
+      document.addEventListener("visibilitychange", this.playerHiddenScrobbleHandler);
     },
     unbindPlayerExitCleanup() {
       if (!this.playerExitCleanupHandler) {
@@ -74,7 +84,9 @@ export function createPlayerScreenMethods11() {
       window.removeEventListener("pagehide", this.playerExitCleanupHandler);
       window.removeEventListener("beforeunload", this.playerExitCleanupHandler);
       document.removeEventListener("nuvio:beforeExitApp", this.playerExitCleanupHandler);
+      document.removeEventListener("visibilitychange", this.playerHiddenScrobbleHandler);
       this.playerExitCleanupHandler = null;
+      this.playerHiddenScrobbleHandler = null;
     },
     getTrackProbeUrl() {
       const currentCandidate = this.getCurrentStreamCandidate();

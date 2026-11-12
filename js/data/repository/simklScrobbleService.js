@@ -58,14 +58,15 @@ function buildPayload(context = {}) {
   return payload;
 }
 
-async function send(action, context) {
+async function send(action, context, { urgent = false } = {}) {
   if (!SimklAuthService.isAuthenticated() || failures >= 3) return;
   if (context.contentType === "series" && !Number(context.episodeNumber || 0)) return;
   try {
     await simklRequest(`/scrobble/${action}`, {
       method: "POST",
       body: buildPayload(context),
-      retry: false
+      retry: false,
+      urgent
     });
     failures = 0;
     lastAction = action === "stop" ? null : action;
@@ -110,9 +111,21 @@ export const SimklScrobbleService = {
     if (lastAction === "start") void send("pause", context);
   },
 
-  stop(context) {
+  /**
+   * Reports the position at once, in a request that outlives the page. It is
+   * sent even after a pause, whose queued report may never have gone out.
+   */
+  suspend(context) {
     clearStartTimer();
-    void send("stop", context);
+    if (lastAction === "start" || lastAction === "pause") {
+      void send("pause", context, { urgent: true });
+    }
+  },
+
+  /** `urgent` is for an app being closed; see `suspend`. */
+  stop(context, { urgent = false } = {}) {
+    clearStartTimer();
+    void send("stop", context, { urgent });
     lastAction = null;
   },
 

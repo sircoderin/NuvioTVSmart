@@ -254,6 +254,10 @@ export function createHomeScreenMethods21() {
       this.homeCatalogWindowCount = windowCount;
       this.homeCatalogRequestedKeys = new Set([...initialKeys, ...deferredDescriptors.map((catalog) => catalog.homeCatalogKey)]);
 
+      if (!background) {
+        // Counted from the first request, not from when the first rows land.
+        this.startHomeLoadingStatus(token, [...initialDescriptors, ...deferredDescriptors]);
+      }
       const progressiveInitialRows = new Map();
       const initialRowsPromise = this.fetchCatalogRows(initialDescriptors, {
         allowLoading: true,
@@ -261,6 +265,7 @@ export function createHomeScreenMethods21() {
           if (token !== this.homeLoadToken || Router.getCurrent() !== "home") {
             return;
           }
+          this.noteHomeLoadingStatusRow(token, row);
           // Progressive first paint exists for a cold load with nothing on screen.
           // During a background refresh a full Home is already rendered, so
           // painting one-to-six rows over it is a regression, not progress.
@@ -417,9 +422,7 @@ export function createHomeScreenMethods21() {
         }
       });
 
-      if (!background) {
-        this.startHomeLoadingStatus(token, [...initialDescriptors, ...deferredDescriptors], initialRows);
-      }
+      initialRows.forEach((row) => this.noteHomeLoadingStatusRow(token, row));
       void this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults }).then(() => {
         persistHomeCatalogSnapshot(this, token, { force: true });
         this.finishHomeLoadingStatus(token);

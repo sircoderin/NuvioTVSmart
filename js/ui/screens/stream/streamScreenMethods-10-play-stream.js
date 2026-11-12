@@ -44,7 +44,7 @@ export function createStreamScreenMethods10() {
         progressPercent: this.params?.resumeProgressPercent,
         durationMs: Number(this.params?.resumeDurationMs || 0) || 0
       };
-      const hasRouteResume = !startFromBeginning && isWatchProgressInProgress(routeResumeProgress);
+      const hasRouteResume = !startFromBeginning && !this.routeResumeStale && isWatchProgressInProgress(routeResumeProgress);
       let resumePositionMs = hasRouteResume ? routeResumeProgress.positionMs : 0;
       let resumeProgressPercent = hasRouteResume ? routeResumeProgress.progressPercent : null;
       let resumeDurationMs = hasRouteResume ? routeResumeProgress.durationMs : 0;

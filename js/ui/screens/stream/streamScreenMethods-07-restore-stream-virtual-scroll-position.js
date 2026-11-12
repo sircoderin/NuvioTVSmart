@@ -162,6 +162,7 @@ export function createStreamScreenMethods07() {
       const percent = Number(this.params?.resumeProgressPercent || 0);
       const resume =
         !this.params?.startFromBeginning &&
+        !this.routeResumeStale &&
         isWatchProgressInProgress({ positionMs, progressPercent: percent, durationMs: this.params?.resumeDurationMs });
       const resumeLabel = resume
         ? positionMs > 0

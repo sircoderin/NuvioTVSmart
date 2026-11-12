@@ -56,6 +56,9 @@ export function createStreamScreenMethods03() {
       // title again from Detail is a new stream search.
       const returningFromPlayer = Boolean(navigationContext?.isBackNavigation && navigationContext?.previousRoute === "player");
       this.autoResumeAttempted = returningFromPlayer;
+      // The route still carries the resume point it was opened with; the
+      // playback that just ended saved a later one.
+      this.routeResumeStale = returningFromPlayer;
       const playerSettings = PlayerSettingsStore.get();
       const reusableStream = playerSettings.streamReuseLastLinkEnabled
         ? StreamPreferencesStore.getValid(

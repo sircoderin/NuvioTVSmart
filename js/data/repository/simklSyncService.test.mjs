@@ -14,6 +14,7 @@ globalThis.localStorage = {
 };
 
 const { SimklSyncService } = await import("./simklSyncService.js");
+const { deduplicateInProgress } = await import("./watchProgressRepository.js");
 const { TraktSettingsStore, SimklAnimeIdPreference } =
   await import("../local/traktSettingsStore.js");
 
@@ -26,13 +27,13 @@ function movie(imdb, title, mal = null) {
   };
 }
 
-function store(entries, playback = []) {
+function store(entries, playback = [], lastSyncedAt = 1) {
   storage.set(
     "simklSyncState",
     JSON.stringify({
       version: 1,
       profiles: {
-        1: { schemaVersion: 3, initialized: true, entries, playback, lastSyncedAt: 1 }
+        1: { schemaVersion: 3, initialized: true, entries, playback, lastSyncedAt }
       }
     })
   );
@@ -112,4 +113,35 @@ test("findEntry returns the first entry that matches any candidate id", async ()
   assert.equal(SimklSyncService.findEntry(snapshot, { contentId: "TT6" })?.movie.title, "Second");
   assert.equal(SimklSyncService.findEntry(snapshot, { contentId: "tt404" }), undefined);
   assert.equal(await countParses(() => SimklSyncService.getSnapshot()), 0);
+});
+
+const HOUR_MS = 60 * 60 * 1000;
+
+function partialOnDevice(imdbId, updatedAt) {
+  return {
+    contentId: imdbId,
+    contentType: "movie",
+    imdbId,
+    videoId: imdbId,
+    positionMs: 30 * 60 * 1000,
+    durationMs: 120 * 60 * 1000,
+    updatedAt
+  };
+}
+
+async function continueWatchingWith(deviceItem) {
+  const { historyItems } = await SimklSyncService.getProgressSnapshot();
+  return deduplicateInProgress([...historyItems, deviceItem]).map((item) => item.contentId);
+}
+
+test("a movie Simkl lists as watched without a date keeps its newer partial progress", async () => {
+  const syncedAt = Date.now();
+  store([{ ...movie("tt5", "Undated"), last_watched_at: null }], [], syncedAt);
+  assert.deepEqual(await continueWatchingWith(partialOnDevice("tt5", syncedAt - HOUR_MS)), ["tt5"]);
+});
+
+test("a movie finished on another device after the partial progress leaves Continue Watching", async () => {
+  const finishedAt = Date.now();
+  store([{ ...movie("tt6", "Finished"), last_watched_at: new Date(finishedAt).toISOString() }]);
+  assert.deepEqual(await continueWatchingWith(partialOnDevice("tt6", finishedAt - HOUR_MS)), []);
 });

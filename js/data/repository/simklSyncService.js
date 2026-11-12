@@ -722,7 +722,9 @@ function buildWatchedProjection(snapshot, preference, profileId) {
           ...base,
           videoId: contentId,
           source: "simkl_history",
-          updatedAt: watchedAt,
+          // Without a watch date the movie must not look newer than progress
+          // made since; the sync time would put it ahead of every partial.
+          updatedAt: parseDate(entry.last_watched_at, 0),
           positionMs: 0,
           durationMs: 0,
           progressPercent: 100,

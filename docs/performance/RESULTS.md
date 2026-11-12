@@ -469,3 +469,32 @@ Not done yet, also from Native Legacy: persisting the metadata Next Up uses
 (up to 32 series lookups per start; in-progress Continue Watching cards
 already have a 14-day enrichment cache) and a negative cache for meta lookups
 that failed.
+
+## First catalog rows from the cache (November 12, 2026, not kept)
+
+Native Legacy builds Home from its catalog file before any network request.
+Two versions of that were tried on the constrained TV, two cold reloads each,
+against the 4.3 s interactive of the build above (first five catalogs from the
+network, later ones from the cache).
+
+Reading the whole 1.75 MB cache before the first render: one reload found the
+cache and parsed no catalog page before 15 s, but was interactive at 6.5 s
+(long tasks before 15 s 4.6 s, longest 1.5 s). The other missed the cache and
+started from the network (5.0 s); the cache had survived the reinstall, so the
+miss was probably a slow read.
+
+Storing the first five rows apart (138 KB) and reading the full cache after
+the first render: interactive at 4.9 s and 3.9 s, all catalogs on screen at
+7.8 s and 5.2 s, long tasks before 15 s 5.2 s and 3.6 s. With Home's perf log,
+the small read took 0.39 s and the full read 1.05 s, after the first render.
+Home's load started about 2.7 s after the reload and its first render
+followed about 1 s later, so the catalog source can only change that last
+second; most of the startup is spent before Home loads. Neither version was
+kept. The second is kept outside the repository, under
+`.cache/tv-performance/`.
+
+The catalog refresh fix that came out of this work is kept: stale-catalog
+refreshes pass their 15 min window as a maximum age to the in-memory catalog
+cache, which otherwise returned the pages fetched earlier in the session, and
+a constrained TV checks once a minute whether Home's catalogs need that
+refresh. Neither has been timed on the TV.

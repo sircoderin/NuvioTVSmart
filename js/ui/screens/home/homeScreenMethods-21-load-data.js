@@ -3,6 +3,8 @@ import { startHomeContinueWatchingLoad } from "./homeContinueWatchingLoad.js";
 import { updateHomeLoadingStatus } from "./homeLoadingStatus.js";
 import { HomeCatalogSnapshotStore, buildHomeCatalogSnapshotKey } from "../../../data/local/homeCatalogSnapshotStore.js";
 
+// How long the catalogs below the first batch wait for Continue Watching.
+const CONTINUE_WATCHING_FIRST_MAX_MS = 2500;
 const SNAPSHOT_READ_TIMEOUT_MS = 500;
 const SNAPSHOT_WRITE_INTERVAL_MS = 60 * 1000;
 
@@ -423,10 +425,21 @@ export function createHomeScreenMethods21() {
       });
 
       initialRows.forEach((row) => this.noteHomeLoadingStatusRow(token, row));
-      void this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults }).then(() => {
-        persistHomeCatalogSnapshot(this, token, { force: true });
-        this.finishHomeLoadingStatus(token);
-      });
+      // On a cold load, Continue Watching's lookups go first: every catalog
+      // response is parsed on the same thread and delayed each lookup's next
+      // step by about a second on the TV.
+      const deferredRangeStart = background
+        ? Promise.resolve()
+        : Promise.race([
+            Promise.resolve(continueWatchingLoad).catch(() => null),
+            new Promise((resolve) => setTimeout(resolve, CONTINUE_WATCHING_FIRST_MAX_MS))
+          ]);
+      void deferredRangeStart
+        .then(() => (token === this.homeLoadToken ? this.loadHomeCatalogRange(deferredDescriptors, { token, prefetchedResults }) : []))
+        .then(() => {
+          persistHomeCatalogSnapshot(this, token, { force: true });
+          this.finishHomeLoadingStatus(token);
+        });
       this.ensureHomeCatalogWindowForNode(this.getCurrentFocusedNode());
 
       if (this.layoutMode !== "modern") {

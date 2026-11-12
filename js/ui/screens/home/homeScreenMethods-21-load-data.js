@@ -23,9 +23,16 @@ function readSnapshotWithTimeout(options) {
   );
 }
 
+// Constrained TVs skip the catalog cache: opening and reading it there takes
+// seconds, so it never paints before the network, and reading and writing the
+// rows still cost the main thread during startup.
+function usesHomeCatalogSnapshot(screen) {
+  return !screen?.isPerformanceConstrained?.();
+}
+
 function persistHomeCatalogSnapshot(screen, token, { force = false } = {}) {
   const key = screen?.homeCatalogSnapshotKey;
-  if (!key || token !== screen.homeLoadToken) return;
+  if (!key || token !== screen.homeLoadToken || !usesHomeCatalogSnapshot(screen)) return;
   const now = Date.now();
   if (!force && now - Number(screen.lastHomeCatalogSnapshotWriteAt || 0) < SNAPSHOT_WRITE_INTERVAL_MS) {
     return;
@@ -288,7 +295,7 @@ export function createHomeScreenMethods21() {
           this.maybeStartPendingHomeBackgroundRefresh();
         }
       });
-      if (!background && !this.hasLoadedOnce) {
+      if (!background && !this.hasLoadedOnce && usesHomeCatalogSnapshot(this)) {
         // Read the last successful catalog in parallel with the network. If
         // the addons answer first, the progressive rows above already won and
         // this snapshot is ignored; if the disk answers first, Home paints

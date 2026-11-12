@@ -380,3 +380,27 @@ two builds vary more between runs than the earlier traced runs did, so two
 runs show no regression from the merge rather than a measured speedup.
 `--css-smoke` confirmed the renamed motion stylesheet still reveals all seven
 animation-dependent elements.
+
+## Startup loading pill and Continue Watching order on the TV (November 12, 2026)
+
+Cold reloads from Home with the launch snapshot saved, recording when the
+pill text, the Continue Watching cards and focus changed, plus the timing of
+every non-image request. The Simkl check was skipped in every run (its
+15-minute gate), so Continue Watching waited only on addon meta lookups.
+
+- The spinner does not slow startup or keys. With it turned off through the
+  inspector, Home was interactive at 6.2 and 7.0 s; with it on, at 4.9-6.1 s
+  (four runs). Early-navigation key latency with the pill: median 50-89 ms,
+  worst key 0.8-1.6 s.
+- Continue Watching's late lookups are not slow requests. They took
+  21-42 ms but started about a second apart, between 9.5 and 12.3 s, each
+  step waiting while the main thread parsed the 55 catalog responses.
+- Holding the lower catalogs until Continue Watching finished (at most 2.5 s)
+  made the catalogs finish at 11.4-12.5 s instead of 8.5-9.0 s, and the last
+  Continue Watching lookup did not end sooner. Reverted.
+- Run-to-run variation is as large as the effects measured: the same merge
+  build became interactive at 4.3, 4.6 and 8.5 s within an hour. Treat
+  differences under about 2 s between two-run sets as unresolved.
+- Upstream's IndexedDB catalog cache never wins its 500 ms race here: opening
+  the database took 1.9 s and the read 1.2 s, so Home always paints from the
+  network. Its writes still run (2.6 s for the put after the first rows).

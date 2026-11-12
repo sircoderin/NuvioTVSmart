@@ -533,3 +533,34 @@ source through a source map of the identical bundle:
   parser. The app does not use `JSON.rawJSON` or `JSON.isRawJSON`.
 - The device registration request (`register_current_device`, 1.4 s server
   time) is not awaited; Home's requests start when the mount task ends.
+
+## Fast scrolling down Home on the TV (November 12, 2026)
+
+Settled Home (reload, 45 s wait), focus on the first catalog row, then 15 Down
+presses sent 250 ms apart, under Chrome tracing; run 1 with 1 ms CPU samples.
+
+| Run          | Time for 15 presses | Long tasks | Longest | Presses that did not move focus |
+| ------------ | ------------------- | ---------- | ------- | ------------------------------- |
+| 1 (profiled) | 12.5 s              | 15.1 s     | 2.9 s   | 2                               |
+| 2            | 8.9 s               | 12.4 s     | 2.6 s   | 3                               |
+
+The press timings stretch because the stalls also delay the key events.
+
+- Most of the stall time is `CompositeLayers`, 4.1 s and 5.3 s. Inside it the
+  main thread waits in `ProxyMain::BeginMainFrame::commit` (1.6 s of the 2.5 s
+  one in run 2) while the compositor thread finishes the previous frame:
+  waiting for raster and GPU work (about 1.8 s), activating the tree (1.05 s)
+  and decoding images for GPU upload (`GpuImageDecodeCache::DecodeImage`,
+  0.45 s). The page has 13 compositor layers, 740 elements and 114 cards, so
+  layer count is not the cost.
+- Home's posters are not shrunk: 600 x 900 (TMDB `w600_and_h900_bestv2`) and
+  680 x 1000 (TheTVDB full-size) images are shown at 221 x 339. The 57 loaded
+  images decode to 33.9 megapixels (about 135 MB) for 4.9 megapixels on
+  screen. The rescaler only shrinks images over 1280 px.
+- Each Down handler spent 0.3-0.5 s in the profiled run (0.28-0.68 s per
+  long key task in run 2), mostly the style update that `focus()` forces. The
+  viewport scroll handler's frame callback took 1.3 s once: mounting rows for
+  the viewport (0.43 s) and lazy-image hydration's layout reads (0.5 s).
+- About 7 s after the last press, one 1.9 s task re-read watch progress,
+  watched items and installed addons (hero enrichment and watched-state work);
+  it would stall a scroll that was still going.
